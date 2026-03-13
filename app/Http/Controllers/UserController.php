@@ -1,0 +1,167 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\User;
+use App\Services\UserService;
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
+
+class UserController extends Controller
+{
+    public function __construct(
+        private UserService $userService
+    ) {}
+
+    /**
+     * Get authenticated user profile
+     */
+    public function profile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'user' => array_merge(
+                    $user->only([
+                        'id', 
+                        'firstname', 
+                        'lastname', 
+                        'email', 
+                        'phoneNumber',
+                        'referralCode',
+                        'is_verified',
+                        'created_at'
+                    ]),
+                    ['full_name' => $this->userService->getFullName($user)]
+                ),
+            ]
+        ]);
+    }
+
+    /**
+     * Update user profile
+     */
+    public function update(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            
+            $validated = $request->validate([
+                'firstname' => 'sometimes|string|max:255',
+                'lastname' => 'sometimes|string|max:255',
+                'phoneNumber' => 'sometimes|string|max:20|unique:users,phoneNumber,' . $user->id,
+                'current_password' => 'required_with:password|string',
+                'password' => 'sometimes|string|min:8|confirmed',
+            ]);
+
+            // Verify current password if changing password
+            if (isset($validated['password'])) {
+                if (!Hash::check($validated['current_password'], $user->password)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Current password is incorrect',
+                        'errors' => ['current_password' => ['The provided password does not match our records.']]
+                    ], 422);
+                }
+            }
+
+            $updatedUser = $this->userService->update($user, $validated);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Profile updated successfully',
+                'data' => [
+                    'user' => $updatedUser->only([
+                        'firstname', 
+                        'lastname', 
+                        'email', 
+                        'phoneNumber'
+                    ]),
+                ]
+            ]);
+
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Update failed',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete user account
+     */
+    public function destroy(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            
+            $validated = $request->validate([
+                'password' => 'required|string',
+            ]);
+
+            if (!Hash::check($validated['password'], $user->password)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Password is incorrect',
+                ], 422);
+            }
+
+            $this->userService->delete($user);
+            
+            // Logout user
+            Auth::logout();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Account deleted successfully',
+            ]);
+
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Account deletion failed',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Get user by referral code
+     */
+    public function getByReferralCode(string $code): JsonResponse
+    {
+        $user = $this->userService->findByReferralCode($code);
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid referral code',
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'user' => $user->only(['id', 'firstname', 'lastname', 'referralCode']),
+            ]
+        ]);
+    }
+}
