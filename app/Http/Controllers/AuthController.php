@@ -3,62 +3,91 @@
 namespace App\Http\Controllers;
 
 use App\Services\UserService;
+use App\Services\LoginService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use App\Models\User;
+use Exception;
 
 class AuthController extends Controller
 {
     private UserService $userService;
+    private LoginService $loginService;
 
-    public function __construct(UserService $userService)
+    public function __construct(UserService $userService, LoginService $loginService)
     {
         $this->userService = $userService;
+        $this->loginService = $loginService;
     }
 
-    // ------------------------------
-    // Check Email
-    // ------------------------------
-
+    // =========================================================================
+    // Email Check
+    // =========================================================================
+    
     /**
-     * Check if an email exists in the database.
+     * Check if email exists in the system
+     * 
+     * @param Request $request
+     * @return JsonResponse
      */
     public function checkEmail(Request $request): JsonResponse
     {
-        $request->validate([
-            'email' => 'required|email'
-        ]);
+        try {
+            $validated = $request->validate([
+                'email' => 'required|email'
+            ]);
 
-        $email = $request->email;
-        $user = User::where('email', $email)->first();
+            $user = User::where('email', $validated['email'])->first();
 
-        if ($user) {
+            if ($user) {
+                return response()->json([
+                    'success' => true,
+                    'status' => 'login',
+                    'message' => 'Email exists. Proceed to login.',
+                    'data' => [
+                        'email' => $user->email,
+                        'name' => $user->firstname . ' ' . $user->lastname,
+                    ],
+                ], 200);
+            }
+
             return response()->json([
-                'status' => 'login',
-                'message' => 'Email exists. Proceed to login.',
+                'success' => true,
+                'status' => 'register',
+                'message' => 'Email not found. Proceed to register.',
                 'data' => [
-                    'email' => $user->email,
-                    'name' => $user->firstname . ' ' . $user->lastname,
+                    'email' => $validated['email'],
                 ],
             ], 200);
-        }
 
-        return response()->json([
-            'status' => 'register',
-            'message' => 'Email not found. Proceed to register.',
-            'data' => [
-                'email' => $email,
-            ],
-        ], 200);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'status' => 'error',
+                'message' => 'Failed to check email',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
     }
 
-    // ------------------------------
+    // =========================================================================
     // Registration
-    // ------------------------------
-
+    // =========================================================================
+    
     /**
-     * Register a new user.
+     * Register a new user
+     * 
+     * @param Request $request
+     * @return JsonResponse
      */
     public function register(Request $request): JsonResponse
     {
@@ -72,10 +101,10 @@ class AuthController extends Controller
                     'required',
                     'string',
                     'min:8',
-                    'regex:/[a-z]/',      // lowercase
-                    'regex:/[A-Z]/',      // uppercase
-                    'regex:/[0-9]/',      // number
-                    'regex:/[@$!%*?&]/',  // special character
+                    'regex:/[a-z]/',
+                    'regex:/[A-Z]/',
+                    'regex:/[0-9]/',
+                    'regex:/[@$!%*?&]/',
                 ],
                 'referralCode' => 'nullable|string|exists:users,referralCode',
             ]);
@@ -91,9 +120,10 @@ class AuthController extends Controller
                         'firstname',
                         'lastname',
                         'email',
-                        'phoneNumber'
-                    ]),
-                ],
+                        'phoneNumber',
+                        'is_verified'
+                    ])
+                ]
             ], 201);
 
         } catch (ValidationException $e) {
@@ -103,31 +133,37 @@ class AuthController extends Controller
                 'errors' => $e->errors(),
             ], 422);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Registration failed',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
 
-    // ------------------------------
+    // =========================================================================
     // Email Verification
-    // ------------------------------
-
+    // =========================================================================
+    
     /**
-     * Verify email with code (OTP).
+     * Verify user's email with OTP
+     * 
+     * @param Request $request
+     * @return JsonResponse
      */
     public function verifyEmail(Request $request): JsonResponse
     {
-        $request->validate([
-            'email' => 'required|email',
-            'otp' => 'required|string',
-        ]);
-
         try {
-            $user = $this->userService->verifyEmail($request->email, $request->otp);
+            $validated = $request->validate([
+                'email' => 'required|email',
+                'otp' => 'required|string|size:8',
+            ]);
+
+            $user = $this->userService->verifyEmail(
+                $validated['email'], 
+                $validated['otp']
+            );
 
             return response()->json([
                 'success' => true,
@@ -138,9 +174,10 @@ class AuthController extends Controller
                         'firstname',
                         'lastname',
                         'email',
-                        'is_verified'
-                    ]),
-                ],
+                        'is_verified',
+                        'email_verified_at'
+                    ])
+                ]
             ], 200);
 
         } catch (ValidationException $e) {
@@ -150,39 +187,246 @@ class AuthController extends Controller
                 'errors' => $e->errors(),
             ], 422);
 
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'An unexpected error occurred during verification',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
 
+    // =========================================================================
+    // Resend Verification
+    // =========================================================================
+    
     /**
-     * Resend email verification code.
+     * Resend verification code to user
+     * 
+     * @param Request $request
+     * @return JsonResponse
      */
     public function resendVerification(Request $request): JsonResponse
     {
-        $request->validate([
-            'email' => 'required|email',
-        ]);
-
         try {
-            $user = User::where('email', $request->email)->firstOrFail();
+            $validated = $request->validate([
+                'email' => 'required|email|exists:users,email',
+            ]);
+
+            $user = User::where('email', $validated['email'])->firstOrFail();
+
+            if ($user->hasVerifiedEmail()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Email already verified',
+                ], 400);
+            }
 
             $this->userService->resendVerification($user);
 
             return response()->json([
                 'success' => true,
                 'message' => 'Verification code resent successfully.',
+                'data' => [
+                    'email' => $user->email,
+                    'resend_at' => now(),
+                ]
             ], 200);
 
-        } catch (\Exception $e) {
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => 'Could not resend verification code',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    // =========================================================================
+    // Login
+    // =========================================================================
+    
+    /**
+     * Authenticate user and generate token
+     * 
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function login(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'email' => 'required|email',
+                'password' => 'required|string|min:8',
+            ]);
+
+            $result = $this->loginService->login($validated);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Logged in successfully',
+                'data' => [
+                    'user' => $result['user']->only([
+                        'id',
+                        'firstname',
+                        'lastname',
+                        'email',
+                        'phoneNumber',
+                        'is_verified',
+                        'is_active',
+                        'two_factor_enabled',
+                        'last_login_at',
+                    ]),
+                    'token' => $result['token'],
+                    'requires_2fa' => $result['requires_2fa'] ?? false,
+                    'is_trusted_device' => $result['is_trusted_device'] ?? false,
+                    'login_history' => $result['login_history'] ?? [],
+                ]
+            ], 200);
+
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'An error occurred during login',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    // =========================================================================
+    // Logout
+    // =========================================================================
+    
+    /**
+     * Logout user and revoke token
+     * 
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function logout(Request $request): JsonResponse
+    {
+        try {
+            // Revoke current token
+            $request->user()->currentAccessToken()->delete();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Logged out successfully',
+            ], 200);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to logout',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    // =========================================================================
+    // Get Authenticated User
+    // =========================================================================
+    
+    /**
+     * Get authenticated user details
+     * 
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function me(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'user' => $user->only([
+                        'id',
+                        'firstname',
+                        'lastname',
+                        'email',
+                        'phoneNumber',
+                        'referralCode',
+                        'is_verified',
+                        'is_active',
+                        'two_factor_enabled',
+                        'last_login_at',
+                        'last_login_ip',
+                        'login_count',
+                        'created_at',
+                    ]),
+                    'login_history' => $user->loginAttempts()
+                        ->latest('attempted_at')
+                        ->limit(5)
+                        ->get([
+                            'ip_address', 
+                            'user_agent', 
+                            'attempted_at', 
+                            'success',
+                            'is_lockout'
+                        ])
+                ]
+            ], 200);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch user details',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
+
+    // =========================================================================
+    // Refresh Token
+    // =========================================================================
+    
+    /**
+     * Refresh authentication token
+     * 
+     * @param Request $request
+     * @return JsonResponse
+     */
+    public function refresh(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            
+            // Revoke current token
+            $user->currentAccessToken()->delete();
+            
+            // Create new token
+            $newToken = $user->createToken('auth_token', ['basic'])->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Token refreshed successfully',
+                'data' => [
+                    'token' => $newToken,
+                    'expires_at' => now()->addDays(7), // Configure as needed
+                ]
+            ], 200);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to refresh token',
+                'error' => config('app.debug') ? $e->getMessage() : null,
             ], 500);
         }
     }
