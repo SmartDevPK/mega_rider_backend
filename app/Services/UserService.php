@@ -139,15 +139,16 @@ class UserService
     /**
      * Resend verification code
      */
-    public function resendVerification(User $user): void
-    {
-        $user->update([
-            'email_verification_code' => $this->generateVerificationCode(),
-            'email_verification_sent_at' => now(),
-        ]);
+  public function resendVerification(User $user): void
+{
+    $user->update([
+        'email_verification_code' => $this->generateVerificationCode(),
+        'email_verification_sent_at' => now(),
+    ]);
 
-        Mail::to($user->email)->queue(new VerifyEmailMail($user));
-    }
+    Mail::to($user->email)->send(new VerifyEmailMail($user));
+}
+
 
     // ------------------------------
     // User Updates & Deletion
