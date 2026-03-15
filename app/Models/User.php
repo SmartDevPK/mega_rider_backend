@@ -24,6 +24,11 @@ class User extends Authenticatable
         'phoneNumber',
         'email',
         'referralCode',
+        'address',
+        'latitude',
+        'longitude',
+        'profile_picture',
+        'notifications',
         
         // Authentication
         'password',
