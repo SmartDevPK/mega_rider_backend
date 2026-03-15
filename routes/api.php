@@ -7,6 +7,8 @@ use App\Http\Controllers\TeamMemberController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\ProfileController;
+
 
 // ---------------------------
 // Public routes
@@ -57,4 +59,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Additional protected routes can be added here
 });
+
+Route::middleware('auth:sanctum')->prefix('profile')->group(function () {
+    Route::patch('/update', [ProfileController::class, 'updateProfile']);
+    Route::patch('/address', [ProfileController::class, 'updateAddress']);
+    Route::patch('/picture', [ProfileController::class, 'updateProfilePicture']);
+    Route::patch('/password', [ProfileController::class, 'updatePassword']);
+    Route::patch('/2fa', [ProfileController::class, 'update2FA']);
+    Route::patch('/notifications', [ProfileController::class, 'updateNotifications']);
+    Route::delete('/delete', [ProfileController::class, 'deleteAccount']);
+});
+
 
