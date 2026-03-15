@@ -31,53 +31,61 @@ class AuthController extends Controller
      * @param Request $request
      * @return JsonResponse
      */
-    public function checkEmail(Request $request): JsonResponse
-    {
-        try {
-            $validated = $request->validate([
-                'email' => 'required|email'
-            ]);
+ public function checkEmail(Request $request): JsonResponse
+{
+    try {
+        // Validate request
+        $validated = $request->validate([
+            'email' => 'required|email'
+        ]);
 
-            $user = User::where('email', $validated['email'])->first();
+        $user = User::where('email', $validated['email'])->first();
 
-            if ($user) {
-                return response()->json([
-                    'success' => true,
-                    'status' => 'login',
-                    'message' => 'Email exists. Proceed to login.',
-                    'data' => [
-                        'email' => $user->email,
-                        'name' => $user->firstname . ' ' . $user->lastname,
-                    ],
-                ], 200);
-            }
+        if ($user) {
+            // User exists, check if email is verified
+            $emailVerified = $user->is_verified; // assumes you have 'is_verified' field
 
             return response()->json([
                 'success' => true,
-                'status' => 'register',
-                'message' => 'Email not found. Proceed to register.',
+                'status' => 'login',
+                'message' => $emailVerified 
+                    ? 'Email exists and is verified. Proceed to login.'
+                    : 'Email exists but is not verified. Please verify first.',
                 'data' => [
-                    'email' => $validated['email'],
+                    'email' => $user->email,
+                    'name' => $user->firstname . ' ' . $user->lastname,
+                    'is_verified' => $emailVerified,
                 ],
             ], 200);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'status' => 'error',
-                'message' => 'Validation failed',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (Exception $e) {
-            return response()->json([
-                'success' => false,
-                'status' => 'error',
-                'message' => 'Failed to check email',
-                'error' => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
         }
+
+        // Email not found, prompt for registration
+        return response()->json([
+            'success' => true,
+            'status' => 'register',
+            'message' => 'Email not found. Proceed to register.',
+            'data' => [
+                'email' => $validated['email'],
+            ],
+        ], 200);
+
+    } catch (ValidationException $e) {
+        return response()->json([
+            'success' => false,
+            'status' => 'error',
+            'message' => 'Validation failed',
+            'errors' => $e->errors(),
+        ], 422);
+
+    } catch (Exception $e) {
+        return response()->json([
+            'success' => false,
+            'status' => 'error',
+            'message' => 'Failed to check email',
+            'error' => config('app.debug') ? $e->getMessage() : null,
+        ], 500);
     }
+}
 
     // =========================================================================
     // Registration
@@ -430,4 +438,118 @@ class AuthController extends Controller
             ], 500);
         }
     }
+
+    public function updateProfile(Request $request): JsonResponse
+{
+    $user = $request->user();
+
+    $validated = $request->validate([
+        'first_name' => 'sometimes|string|max:255',
+        'last_name' => 'sometimes|string|max:255',
+        'phone_number' => 'sometimes|string|max:20|unique:users,phone_number,' . $user->id,
+    ]);
+
+    $user->update($validated);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Profile updated successfully',
+        'data' => $user,
+    ]);
+}
+
+public function updateAddress(Request $request): JsonResponse
+{
+    $user = $request->user();
+
+    $validated = $request->validate([
+        'address' => 'required|string|max:500',
+        'latitude' => 'required|numeric',
+        'longitude' => 'required|numeric',
+    ]);
+
+    $user->update($validated);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Address updated successfully',
+        'data' => $user,
+    ]);
+}
+
+public function updateProfilePicture(Request $request): JsonResponse
+{
+    $user = $request->user();
+
+    $request->validate([
+        'profile_picture' => 'required|image|max:2048',
+    ]);
+
+    $path = $request->file('profile_picture')->store('profile_pictures', 'public');
+    $user->update(['profile_picture' => $path]);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Profile picture updated',
+        'data' => $user,
+    ]);
+}
+
+public function updatePassword(Request $request): JsonResponse
+{
+    $user = $request->user();
+
+    $request->validate([
+        'current_password' => 'required|string',
+        'new_password' => 'required|string|min:8|confirmed',
+    ]);
+
+    if (!\Hash::check($request->current_password, $user->password)) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Current password is incorrect'
+        ], 422);
+    }
+
+    $user->update(['password' => bcrypt($request->new_password)]);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Password updated successfully'
+    ]);
+}
+
+public function update2FA(Request $request): JsonResponse
+{
+    $user = $request->user();
+
+    $request->validate([
+        'two_factor_enabled' => 'required|boolean',
+    ]);
+
+    $user->update(['two_factor_enabled' => $request->two_factor_enabled]);
+
+    return response()->json([
+        'success' => true,
+        'message' => '2FA updated',
+        'data' => $user,
+    ]);
+}
+public function updateNotifications(Request $request): JsonResponse
+{
+    $user = $request->user();
+
+    $validated = $request->validate([
+        'notifications' => 'required|array',
+    ]);
+
+    $user->update(['notifications' => json_encode($validated['notifications'])]);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Notifications updated',
+        'data' => $user,
+    ]);
+}
+
 }
