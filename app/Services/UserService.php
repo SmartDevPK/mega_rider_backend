@@ -103,7 +103,7 @@ class UserService
      */
     private function sendVerificationEmail(User $user): void
     {
-        Mail::to($user->email)->queue(new VerifyEmailMail($user));
+        Mail::to($user->email)->send(new VerifyEmailMail($user));
     }
 
     // ------------------------------
