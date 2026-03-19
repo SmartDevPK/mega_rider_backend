@@ -56,24 +56,28 @@ class ProfileController extends Controller
     /**
      * Update user's profile picture
      */
-    public function updateProfilePicture(Request $request): JsonResponse
-    {
-        $user = $request->user();
+   public function updateProfilePicture(Request $request)
+{
+    $request->validate([
+        'profile_picture' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+    ]);
 
-        $request->validate([
-            'profile_picture' => 'required|image|max:2048', // max 2MB
-        ]);
+    $user = $request->user();
 
-        $path = $request->file('profile_picture')->store('profile_pictures', 'public');
+    // Store image
+    $path = $request->file('profile_picture')->store('profile_pictures', 'public');
 
-        $user->update(['profile_picture' => $path]);
+    // Save path in DB
+    $user->profile_picture = $path;
+    $user->save();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Profile picture updated successfully',
-            'data'    => $user,
-        ]);
-    }
+    return response()->json([
+        'success' => true,
+        'message' => 'Profile picture updated successfully',
+        'data' => $user,
+    ]);
+}
+
 
     /**
      * Update user's password
@@ -125,22 +129,26 @@ class ProfileController extends Controller
     /**
      * Update user notification preferences
      */
-    public function updateNotifications(Request $request): JsonResponse
-    {
-        $user = $request->user();
+   public function updateNotifications(Request $request): JsonResponse
+{
+    $user = $request->user();
 
-        $validated = $request->validate([
-            'notifications' => 'required|array', // e.g. ['app_update' => true, 'promo' => false]
-        ]);
+    // Validate that notifications is an array
+    $validated = $request->validate([
+        'notifications' => 'required|array', // e.g. ['app_update' => true, 'promo' => false]
+    ]);
 
-        $user->update(['notifications' => json_encode($validated['notifications'])]);
+    // Update notifications directly as an array (Laravel will handle JSON casting if $casts is set)
+    $user->notifications = $validated['notifications'];
+    $user->save();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Notifications updated successfully',
-            'data'    => $user,
-        ]);
-    }
+    return response()->json([
+        'success' => true,
+        'message' => 'Notifications updated successfully',
+        'data'    => $user,
+    ]);
+}
+
 
     /**
      * Delete user account (soft delete)
@@ -160,10 +168,9 @@ class ProfileController extends Controller
             ], 422);
         }
 
-        // Soft delete: mark user as inactive
         $user->update(['is_active' => false]);
 
-        // Revoke all API tokens (if using Sanctum)
+        // Revoke all API tokens (Sanctum)
         $user->tokens()->delete();
 
         return response()->json([
