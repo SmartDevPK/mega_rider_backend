@@ -61,7 +61,6 @@ return new class extends Migration
             ])->default('other');
 
             // Order Details
-            $table->enum('order_type', ['express', 'standard', 'scheduled'])->default('standard');
             $table->enum('vehicle_type', ['motorcycle', 'bike', 'van', 'car'])->default('motorcycle');
             $table->text('order_instruction')->nullable();
             $table->integer('travel_time')->nullable()->comment('Estimated travel time in minutes');
