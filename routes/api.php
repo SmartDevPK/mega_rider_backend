@@ -23,6 +23,7 @@ Route::get('/referral/{code}', [UserController::class, 'getByReferralCode']);
 // Authentication & registration
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
+    Route::get('/user-info', [AuthController::class, 'getUserInfo']);
     Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
     Route::post('/resend-verification', [AuthController::class, 'resendVerification']);
     Route::post('/login', [AuthController::class, 'login']);
