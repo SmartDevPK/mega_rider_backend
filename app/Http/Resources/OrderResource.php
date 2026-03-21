@@ -64,7 +64,6 @@ class OrderResource extends JsonResource
             ],
             
             // Order Details
-            'order_type' => $this->order_type,
             'vehicle_type' => $this->vehicle_type,
             'instructions' => $this->order_instruction,
             'travel_time' => $this->travel_time,
