@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use App\Models\User;
 use Exception;
+use GeoIP;
 
 class AuthController extends Controller
 {
@@ -97,58 +98,100 @@ class AuthController extends Controller
      * @param Request $request
      * @return JsonResponse
      */
-    public function register(Request $request): JsonResponse
-    {
-        try {
-            $validated = $request->validate([
-                'firstname' => 'required|string|max:255',
-                'lastname' => 'required|string|max:255',
-                'phoneNumber' => 'required|string|max:20|unique:users',
-                'email' => 'required|email|max:255|unique:users',
-                'password' => [
-                    'required',
-                    'string',
-                    'min:8',
-                    'regex:/[a-z]/',
-                    'regex:/[A-Z]/',
-                    'regex:/[0-9]/',
-                    'regex:/[@$!%*?&]/',
-                ],
-                'referralCode' => 'nullable|string|exists:users,referralCode',
-            ]);
+   public function register(Request $request): JsonResponse
+{
+    // -------------------------------
+    // 🌍 GeoIP: Restrict to Nigeria
+    // -------------------------------
+    $ip = $request->ip();
+    $location = geoip($ip); // requires torann/geoip package
 
-            $user = $this->userService->register($validated);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Registration successful. Please check your email for verification code.',
-                'data' => [
-                    'user' => $user->only([
-                        'id',
-                        'firstname',
-                        'lastname',
-                        'email',
-                        'phoneNumber',
-                        'is_verified'
-                    ])
-                ]
-            ], 201);
-
-        } catch (ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation failed',
-                'errors' => $e->errors(),
-            ], 422);
-
-        } catch (Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Registration failed',
-                'error' => config('app.debug') ? $e->getMessage() : null,
-            ], 500);
-        }
+    if ($location->iso_code !== 'NG') {
+        return response()->json([
+            'success' => false,
+            'message' => 'This app is only available in Nigeria.'
+        ], 403);
     }
+
+    try {
+        // -------------------------------
+        //  Validate request input
+        // -------------------------------
+        $validated = $request->validate([
+            'firstname' => 'required|string|max:255',
+            'lastname'  => 'required|string|max:255',
+            'phoneNumber' => [
+                'required',
+                'string',
+                'max:20',
+                'unique:users',
+                'regex:/^(?:\+234|0)[789][01]\d{8}$/', // Nigerian numbers
+            ],
+            'email' => 'required|email|max:255|unique:users',
+            'password' => [
+                'required',
+                'string',
+                'min:8',
+                'regex:/[a-z]/',      // lowercase
+                'regex:/[A-Z]/',      // uppercase
+                'regex:/[0-9]/',      // number
+                'regex:/[@$!%*?&]/',  // special character
+            ],
+            'referralCode' => 'nullable|string|exists:users,referralCode',
+        ]);
+
+        // -------------------------------
+        // ☎ Normalize phone number to +234
+        // -------------------------------
+        if (Str::startsWith($validated['phoneNumber'], '0')) {
+            $validated['phoneNumber'] = '+234' . substr($validated['phoneNumber'], 1);
+        }
+
+        // -------------------------------
+        //  Block non-Nigerian phone numbers
+        // -------------------------------
+        if (!Str::startsWith($validated['phoneNumber'], '+234')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only Nigerian phone numbers are allowed.'
+            ], 403);
+        }
+
+        // -------------------------------
+        //  Register user via service
+        // -------------------------------
+        $user = $this->userService->register($validated);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Registration successful. Please check your email for verification code.',
+            'data' => [
+                'user' => $user->only([
+                    'id',
+                    'firstname',
+                    'lastname',
+                    'email',
+                    'phoneNumber',
+                    'is_verified'
+                ]),
+            ],
+        ], 201);
+
+    } catch (ValidationException $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Validation failed',
+            'errors' => $e->errors(),
+        ], 422);
+
+    } catch (Exception $e) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Registration failed',
+            'error' => config('app.debug') ? $e->getMessage() : null,
+        ], 500);
+    }
+}
 
     // =========================================================================
     // Email Verification
