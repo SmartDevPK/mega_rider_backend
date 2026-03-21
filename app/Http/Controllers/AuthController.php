@@ -98,7 +98,8 @@ class AuthController extends Controller
      * @param Request $request
      * @return JsonResponse
      */
-   public function register(Request $request): JsonResponse
+
+public function register(Request $request): JsonResponse
 {
     // -------------------------------
     // 🌍 GeoIP: Restrict to Nigeria
@@ -192,6 +193,37 @@ class AuthController extends Controller
         ], 500);
     }
 }
+
+//--------------------------------------
+//GETUSERINFO
+//--------------------------------------
+
+public function getUserInfo(Request $request): JsonResponse
+{
+    $emailOrPhone = $request->input('identifier'); // email or phone number
+
+    $user = \App\Models\User::where('email', $emailOrPhone)
+                ->orWhere('phoneNumber', $emailOrPhone)
+                ->first();
+
+    if ($user) {
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'firstname' => $user->firstname,
+                'lastname' => $user->lastname,
+                'email' => $user->email,
+                'phoneNumber' => $user->phoneNumber
+            ]
+        ]);
+    }
+
+    return response()->json([
+        'success' => false,
+        'message' => 'No existing user found'
+    ]);
+}
+
 
     // =========================================================================
     // Email Verification
