@@ -68,7 +68,6 @@ class Order extends Model
         'package_category',
         
         // Order Details
-        'order_type',
         'vehicle_type',
         'order_instruction',
         'travel_time',
