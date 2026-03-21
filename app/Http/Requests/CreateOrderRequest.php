@@ -45,7 +45,6 @@ class CreateOrderRequest extends FormRequest
             'package_worth' => 'required|numeric|min:0',
             'package_insurance' => 'sometimes|boolean',
             'insurance_fee' => 'required_if:package_insurance,true|numeric|min:0|nullable',
-            'order_type' => 'required|in:express,standard,scheduled', // adjust based on your types
             'order_instruction' => 'nullable|string|max:500',
             'travel_time' => 'nullable|integer|min:1',
 
