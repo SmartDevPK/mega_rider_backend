@@ -285,7 +285,6 @@ public function update($orderIdentifier, array $data): Order
             'package_worth',
             'package_insurance',
             'insurance_fee',
-            'order_type',
             'vehicle_type',
             'status',
             'payment_status',
