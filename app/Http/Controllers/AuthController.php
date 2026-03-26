@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Support\Str;
 use App\Services\UserService;
 use App\Services\LoginService;
 use Illuminate\Http\Request;
@@ -9,7 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Validation\ValidationException;
 use App\Models\User;
 use Exception;
-use GeoIP;
+use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
@@ -28,65 +29,108 @@ class AuthController extends Controller
     
     /**
      * Check if email exists in the system
-     * 
-     * @param Request $request
-     * @return JsonResponse
      */
- public function checkEmail(Request $request): JsonResponse
-{
-    try {
-        // Validate request
-        $validated = $request->validate([
-            'email' => 'required|email'
-        ]);
+    public function checkEmail(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'email' => 'required|email'
+            ]);
 
-        $user = User::where('email', $validated['email'])->first();
+            $user = User::where('email', $validated['email'])->first();
 
-        if ($user) {
-            // User exists, check if email is verified
-            $emailVerified = $user->is_verified; // assumes you have 'is_verified' field
+            if ($user) {
+                $emailVerified = $user->is_verified;
+
+                return response()->json([
+                    'success' => true,
+                    'status' => 'login',
+                    'message' => $emailVerified 
+                        ? 'Email exists and is verified. Proceed to login.'
+                        : 'Email exists but is not verified. Please verify first.',
+                    'data' => [
+                        'email' => $user->email,
+                        'name' => $user->firstname . ' ' . $user->lastname,
+                        'is_verified' => $emailVerified,
+                    ],
+                ], 200);
+            }
 
             return response()->json([
                 'success' => true,
-                'status' => 'login',
-                'message' => $emailVerified 
-                    ? 'Email exists and is verified. Proceed to login.'
-                    : 'Email exists but is not verified. Please verify first.',
+                'status' => 'register',
+                'message' => 'Email not found. Proceed to register.',
                 'data' => [
-                    'email' => $user->email,
-                    'name' => $user->firstname . ' ' . $user->lastname,
-                    'is_verified' => $emailVerified,
+                    'email' => $validated['email'],
                 ],
             ], 200);
+
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'status' => 'error',
+                'message' => 'Failed to check email',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
         }
-
-        // Email not found, prompt for registration
-        return response()->json([
-            'success' => true,
-            'status' => 'register',
-            'message' => 'Email not found. Proceed to register.',
-            'data' => [
-                'email' => $validated['email'],
-            ],
-        ], 200);
-
-    } catch (ValidationException $e) {
-        return response()->json([
-            'success' => false,
-            'status' => 'error',
-            'message' => 'Validation failed',
-            'errors' => $e->errors(),
-        ], 422);
-
-    } catch (Exception $e) {
-        return response()->json([
-            'success' => false,
-            'status' => 'error',
-            'message' => 'Failed to check email',
-            'error' => config('app.debug') ? $e->getMessage() : null,
-        ], 500);
     }
-}
+
+    /**
+     * Check if phone exists in the system
+     */
+    public function checkPhone(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'phoneNumber' => 'required|string'
+            ]);
+
+            $user = User::where('phoneNumber', $validated['phoneNumber'])->first();
+
+            if ($user) {
+                return response()->json([
+                    'success' => true,
+                    'exists' => true,
+                    'message' => 'Phone number is already registered.',
+                    'data' => [
+                        'phoneNumber' => $user->phoneNumber,
+                        'name' => $user->firstname . ' ' . $user->lastname,
+                    ],
+                ], 200);
+            }
+
+            return response()->json([
+                'success' => true,
+                'exists' => false,
+                'message' => 'Phone number is available.',
+                'data' => [
+                    'phoneNumber' => $validated['phoneNumber'],
+                ],
+            ], 200);
+
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to check phone number',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
 
     // =========================================================================
     // Registration
@@ -94,136 +138,137 @@ class AuthController extends Controller
     
     /**
      * Register a new user
-     * 
-     * @param Request $request
-     * @return JsonResponse
      */
+    public function register(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'firstname' => 'required|string|max:255',
+                'lastname'  => 'required|string|max:255',
+                'phoneNumber' => [
+                    'required',
+                    'string',
+                    'max:20',
+                    'unique:users',
+                    'regex:/^(?:\+234|0)[789][01]\d{8}$/',
+                ],
+                'email' => 'required|email|max:255|unique:users',
+                'password' => [
+                    'required',
+                    'string',
+                    'min:8',
+                    'confirmed',
+                    'regex:/[a-z]/',
+                    'regex:/[A-Z]/',
+                    'regex:/[0-9]/',
+                    'regex:/[@$!%*?&]/',
+                ],
+                'referralCode' => 'nullable|string|exists:users,referralCode',
+            ]);
 
-public function register(Request $request): JsonResponse
-{
-    // -------------------------------
-    // 🌍 GeoIP: Restrict to Nigeria
-    // -------------------------------
-    $ip = $request->ip();
-    $location = geoip($ip); // requires torann/geoip package
+            // Normalize phone number to +234
+            if (Str::startsWith($validated['phoneNumber'], '0')) {
+                $validated['phoneNumber'] = '+234' . substr($validated['phoneNumber'], 1);
+            }
 
-    if ($location->iso_code !== 'NG') {
-        return response()->json([
-            'success' => false,
-            'message' => 'This app is only available in Nigeria.'
-        ], 403);
-    }
+            // Block non-Nigerian phone numbers
+            if (!Str::startsWith($validated['phoneNumber'], '+234')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only Nigerian phone numbers are allowed.'
+                ], 403);
+            }
 
-    try {
-        // -------------------------------
-        //  Validate request input
-        // -------------------------------
-        $validated = $request->validate([
-            'firstname' => 'required|string|max:255',
-            'lastname'  => 'required|string|max:255',
-            'phoneNumber' => [
-                'required',
-                'string',
-                'max:20',
-                'unique:users',
-                'regex:/^(?:\+234|0)[789][01]\d{8}$/', // Nigerian numbers
-            ],
-            'email' => 'required|email|max:255|unique:users',
-            'password' => [
-                'required',
-                'string',
-                'min:8',
-                'regex:/[a-z]/',      // lowercase
-                'regex:/[A-Z]/',      // uppercase
-                'regex:/[0-9]/',      // number
-                'regex:/[@$!%*?&]/',  // special character
-            ],
-            'referralCode' => 'nullable|string|exists:users,referralCode',
-        ]);
+            // Register user via service
+            $user = $this->userService->register($validated);
 
-        // -------------------------------
-        // ☎ Normalize phone number to +234
-        // -------------------------------
-        if (Str::startsWith($validated['phoneNumber'], '0')) {
-            $validated['phoneNumber'] = '+234' . substr($validated['phoneNumber'], 1);
-        }
+            return response()->json([
+                'success' => true,
+                'message' => 'Registration successful. Please check your email for verification code.',
+                'data' => [
+                    'user' => $user->only([
+                        'id',
+                        'firstname',
+                        'lastname',
+                        'email',
+                        'phoneNumber',
+                        'is_verified'
+                    ]),
+                ],
+            ], 201);
 
-        // -------------------------------
-        //  Block non-Nigerian phone numbers
-        // -------------------------------
-        if (!Str::startsWith($validated['phoneNumber'], '+234')) {
+        } catch (ValidationException $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Only Nigerian phone numbers are allowed.'
-            ], 403);
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration failed',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
         }
-
-        // -------------------------------
-        //  Register user via service
-        // -------------------------------
-        $user = $this->userService->register($validated);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Registration successful. Please check your email for verification code.',
-            'data' => [
-                'user' => $user->only([
-                    'id',
-                    'firstname',
-                    'lastname',
-                    'email',
-                    'phoneNumber',
-                    'is_verified'
-                ]),
-            ],
-        ], 201);
-
-    } catch (ValidationException $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Validation failed',
-            'errors' => $e->errors(),
-        ], 422);
-
-    } catch (Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Registration failed',
-            'error' => config('app.debug') ? $e->getMessage() : null,
-        ], 500);
-    }
-}
-
-//--------------------------------------
-//GETUSERINFO
-//--------------------------------------
-
-public function getUserInfo(Request $request): JsonResponse
-{
-    $emailOrPhone = $request->input('identifier'); // email or phone number
-
-    $user = \App\Models\User::where('email', $emailOrPhone)
-                ->orWhere('phoneNumber', $emailOrPhone)
-                ->first();
-
-    if ($user) {
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'firstname' => $user->firstname,
-                'lastname' => $user->lastname,
-                'email' => $user->email,
-                'phoneNumber' => $user->phoneNumber
-            ]
-        ]);
     }
 
-    return response()->json([
-        'success' => false,
-        'message' => 'No existing user found'
-    ]);
-}
-
+    // =========================================================================
+    // User Info
+    // =========================================================================
+    
+    /**
+     * Get authenticated user info
+     */
+    public function getUserInfo(Request $request): JsonResponse
+    {
+        try {
+            $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated. Please login first.',
+                    'error_code' => 'UNAUTHENTICATED'
+                ], 401);
+            }
+            
+            if (!$user->is_active) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your account has been deactivated.',
+                    'error_code' => 'ACCOUNT_DEACTIVATED'
+                ], 403);
+            }
+            
+            return response()->json([
+                'success' => true,
+                'message' => 'User info retrieved successfully',
+                'data' => [
+                    'id' => $user->id,
+                    'firstname' => $user->firstname,
+                    'lastname' => $user->lastname,
+                    'full_name' => $user->firstname . ' ' . $user->lastname,
+                    'email' => $user->email,
+                    'phoneNumber' => $user->phoneNumber,
+                    'referralCode' => $user->referralCode,
+                    'is_verified' => $user->is_verified,
+                    'is_active' => $user->is_active,
+                    'created_at' => $user->created_at,
+                    'updated_at' => $user->updated_at,
+                ]
+            ], 200);
+            
+        } catch (Exception $e) {
+            \Log::error('Get user info error: ' . $e->getMessage());
+            
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve user information',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
+    }
 
     // =========================================================================
     // Email Verification
@@ -231,9 +276,6 @@ public function getUserInfo(Request $request): JsonResponse
     
     /**
      * Verify user's email with OTP
-     * 
-     * @param Request $request
-     * @return JsonResponse
      */
     public function verifyEmail(Request $request): JsonResponse
     {
@@ -279,15 +321,8 @@ public function getUserInfo(Request $request): JsonResponse
         }
     }
 
-    // =========================================================================
-    // Resend Verification
-    // =========================================================================
-    
     /**
-     * Resend verification code to user
-     * 
-     * @param Request $request
-     * @return JsonResponse
+     * Resend verification code
      */
     public function resendVerification(Request $request): JsonResponse
     {
@@ -338,9 +373,6 @@ public function getUserInfo(Request $request): JsonResponse
     
     /**
      * Authenticate user and generate token
-     * 
-     * @param Request $request
-     * @return JsonResponse
      */
     public function login(Request $request): JsonResponse
     {
@@ -370,7 +402,6 @@ public function getUserInfo(Request $request): JsonResponse
                     'token' => $result['token'],
                     'requires_2fa' => $result['requires_2fa'] ?? false,
                     'is_trusted_device' => $result['is_trusted_device'] ?? false,
-                    'login_history' => $result['login_history'] ?? [],
                 ]
             ], 200);
 
@@ -396,15 +427,15 @@ public function getUserInfo(Request $request): JsonResponse
     
     /**
      * Logout user and revoke token
-     * 
-     * @param Request $request
-     * @return JsonResponse
      */
     public function logout(Request $request): JsonResponse
     {
         try {
-            // Revoke current token
-            $request->user()->currentAccessToken()->delete();
+            $user = $request->user();
+            
+            if ($user && $user->currentAccessToken()) {
+                $user->currentAccessToken()->delete();
+            }
 
             return response()->json([
                 'success' => true,
@@ -426,14 +457,18 @@ public function getUserInfo(Request $request): JsonResponse
     
     /**
      * Get authenticated user details
-     * 
-     * @param Request $request
-     * @return JsonResponse
      */
     public function me(Request $request): JsonResponse
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated'
+                ], 401);
+            }
             
             return response()->json([
                 'success' => true,
@@ -453,16 +488,6 @@ public function getUserInfo(Request $request): JsonResponse
                         'login_count',
                         'created_at',
                     ]),
-                    'login_history' => $user->loginAttempts()
-                        ->latest('attempted_at')
-                        ->limit(5)
-                        ->get([
-                            'ip_address', 
-                            'user_agent', 
-                            'attempted_at', 
-                            'success',
-                            'is_lockout'
-                        ])
                 ]
             ], 200);
 
@@ -481,14 +506,18 @@ public function getUserInfo(Request $request): JsonResponse
     
     /**
      * Refresh authentication token
-     * 
-     * @param Request $request
-     * @return JsonResponse
      */
     public function refresh(Request $request): JsonResponse
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthenticated'
+                ], 401);
+            }
             
             // Revoke current token
             $user->currentAccessToken()->delete();
@@ -501,7 +530,7 @@ public function getUserInfo(Request $request): JsonResponse
                 'message' => 'Token refreshed successfully',
                 'data' => [
                     'token' => $newToken,
-                    'expires_at' => now()->addDays(7), // Configure as needed
+                    'expires_at' => now()->addDays(7),
                 ]
             ], 200);
 
@@ -513,118 +542,4 @@ public function getUserInfo(Request $request): JsonResponse
             ], 500);
         }
     }
-
-    public function updateProfile(Request $request): JsonResponse
-{
-    $user = $request->user();
-
-    $validated = $request->validate([
-        'first_name' => 'sometimes|string|max:255',
-        'last_name' => 'sometimes|string|max:255',
-        'phone_number' => 'sometimes|string|max:20|unique:users,phone_number,' . $user->id,
-    ]);
-
-    $user->update($validated);
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Profile updated successfully',
-        'data' => $user,
-    ]);
-}
-
-public function updateAddress(Request $request): JsonResponse
-{
-    $user = $request->user();
-
-    $validated = $request->validate([
-        'address' => 'required|string|max:500',
-        'latitude' => 'required|numeric',
-        'longitude' => 'required|numeric',
-    ]);
-
-    $user->update($validated);
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Address updated successfully',
-        'data' => $user,
-    ]);
-}
-
-public function updateProfilePicture(Request $request): JsonResponse
-{
-    $user = $request->user();
-
-    $request->validate([
-        'profile_picture' => 'required|image|max:2048',
-    ]);
-
-    $path = $request->file('profile_picture')->store('profile_pictures', 'public');
-    $user->update(['profile_picture' => $path]);
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Profile picture updated',
-        'data' => $user,
-    ]);
-}
-
-public function updatePassword(Request $request): JsonResponse
-{
-    $user = $request->user();
-
-    $request->validate([
-        'current_password' => 'required|string',
-        'new_password' => 'required|string|min:8|confirmed',
-    ]);
-
-    if (!\Hash::check($request->current_password, $user->password)) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Current password is incorrect'
-        ], 422);
-    }
-
-    $user->update(['password' => bcrypt($request->new_password)]);
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Password updated successfully'
-    ]);
-}
-
-public function update2FA(Request $request): JsonResponse
-{
-    $user = $request->user();
-
-    $request->validate([
-        'two_factor_enabled' => 'required|boolean',
-    ]);
-
-    $user->update(['two_factor_enabled' => $request->two_factor_enabled]);
-
-    return response()->json([
-        'success' => true,
-        'message' => '2FA updated',
-        'data' => $user,
-    ]);
-}
-public function updateNotifications(Request $request): JsonResponse
-{
-    $user = $request->user();
-
-    $validated = $request->validate([
-        'notifications' => 'required|array',
-    ]);
-
-    $user->update(['notifications' => json_encode($validated['notifications'])]);
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Notifications updated',
-        'data' => $user,
-    ]);
-}
-
 }
