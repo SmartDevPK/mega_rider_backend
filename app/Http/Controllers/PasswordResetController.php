@@ -18,9 +18,9 @@ class PasswordResetController extends Controller
     }
 
     /**
-     * Request password reset (send reset code)
+     * Send password reset code (matches route: sendResetCode)
      */
-    public function requestReset(Request $request): JsonResponse
+    public function sendResetCode(Request $request): JsonResponse
     {
         try {
             $validated = $request->validate([
@@ -36,8 +36,8 @@ class PasswordResetController extends Controller
                 'message' => 'Password reset code has been sent to your email.',
                 'data' => [
                     'email' => $user->email,
-                    // Remove this in production - only for testing
-                    // 'reset_code' => $resetCode
+                    // Remove in production
+                    'reset_code' => $resetCode
                 ]
             ]);
 
@@ -58,9 +58,9 @@ class PasswordResetController extends Controller
     }
 
     /**
-     * Verify reset code
+     * Verify reset code (matches route: verifyResetCode)
      */
-    public function verifyCode(Request $request): JsonResponse
+    public function verifyResetCode(Request $request): JsonResponse
     {
         try {
             $validated = $request->validate([
@@ -97,7 +97,7 @@ class PasswordResetController extends Controller
     }
 
     /**
-     * Reset password with code
+     * Reset password (matches route: resetPassword)
      */
     public function resetPassword(Request $request): JsonResponse
     {
@@ -136,5 +136,20 @@ class PasswordResetController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Keep your existing methods if you need them
+     */
+    public function requestReset(Request $request): JsonResponse
+    {
+        // Alias for sendResetCode
+        return $this->sendResetCode($request);
+    }
+
+    public function verifyCode(Request $request): JsonResponse
+    {
+        // Alias for verifyResetCode
+        return $this->verifyResetCode($request);
     }
 }
