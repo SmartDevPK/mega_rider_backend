@@ -8,7 +8,9 @@ use App\Mail\PasswordResetMail;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
+use App\Notifications\PasswordResetCode;
 use Illuminate\Support\Str;
+use Carbon\Carbon; // Add this import
 
 class UserService
 {
@@ -139,16 +141,15 @@ class UserService
     /**
      * Resend verification code
      */
-  public function resendVerification(User $user): void
-{
-    $user->update([
-        'email_verification_code' => $this->generateVerificationCode(),
-        'email_verification_sent_at' => now(),
-    ]);
+    public function resendVerification(User $user): void
+    {
+        $user->update([
+            'email_verification_code' => $this->generateVerificationCode(),
+            'email_verification_sent_at' => now(),
+        ]);
 
-    Mail::to($user->email)->send(new VerifyEmailMail($user));
-}
-
+        Mail::to($user->email)->send(new VerifyEmailMail($user));
+    }
 
     // ------------------------------
     // User Updates & Deletion
@@ -188,15 +189,23 @@ class UserService
      */
     public function sendPasswordReset(User $user): string
     {
+        // Generate 6-digit reset code
         $resetCode = $this->generateResetCode();
         
-        $user->update([
-            'password_reset_code' => $resetCode,
-            'password_reset_sent_at' => now(),
-        ]);
-
-        Mail::to($user->email)->queue(new PasswordResetMail($user));
-
+        // Save to database with expiry
+        $user->password_reset_code = $resetCode;
+        $user->password_reset_expires_at = Carbon::now()->addMinutes(30);
+        $user->save();
+        
+        // Send notification via email
+        try {
+            $user->notify(new PasswordResetCode($resetCode));
+            \Log::info("Password reset code sent to: {$user->email}");
+        } catch (\Exception $e) {
+            \Log::error("Failed to send password reset email: " . $e->getMessage());
+            throw new \Exception('Unable to send reset code. Please try again later.');
+        }
+        
         return $resetCode;
     }
 
@@ -215,23 +224,27 @@ class UserService
      */
     public function resetPassword(string $email, string $code, string $newPassword): User
     {
+        // Find user with valid reset code and not expired
         $user = User::where('email', $email)
             ->where('password_reset_code', $code)
+            ->where('password_reset_expires_at', '>', Carbon::now())
             ->first();
-
+            
         if (!$user) {
-            throw ValidationException::withMessages([
-                'code' => ['The reset code is invalid.'],
-            ]);
+            throw new \Exception('Invalid or expired reset code');
         }
-
+        
+        // Validate password strength
         $this->validatePasswordStrength($newPassword);
-
-        $user->update([
-            'password' => Hash::make($newPassword),
-            'password_reset_code' => null,
-        ]);
-
+        
+        // Update password and clear reset code
+        $user->password = Hash::make($newPassword);
+        $user->password_reset_code = null;
+        $user->password_reset_expires_at = null;
+        $user->save();
+        
+        \Log::info("Password reset successfully for: {$email}");
+        
         return $user;
     }
 
