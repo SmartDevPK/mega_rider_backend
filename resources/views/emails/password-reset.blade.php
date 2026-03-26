@@ -1,11 +1,58 @@
+<!-- resources/views/emails/password-reset.blade.php -->
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Password Reset</title>
+    <title>Password Reset Code</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .code {
+            font-size: 32px;
+            font-weight: bold;
+            text-align: center;
+            padding: 20px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+            letter-spacing: 5px;
+            margin: 20px 0;
+        }
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+        }
+    </style>
 </head>
 <body>
-    <h1>Hello {{ $user->firstname }}!</h1>
-    <p>Your password reset code is: <strong>{{ $user->password_reset_code }}</strong></p>
-    <p>This code will expire soon.</p>
+    <div class="container">
+        <h2>Password Reset Request</h2>
+        
+        <p>Hello {{ $user->name }},</p>
+        
+        <p>You requested to reset your password. Please use the following code to complete the process:</p>
+        
+        <div class="code">
+            {{ $code }}
+        </div>
+        
+        <p>This code will expire in 30 minutes.</p>
+        
+        <p>If you didn't request a password reset, please ignore this email.</p>
+        
+        <div class="footer">
+            <p>This is an automated message, please do not reply to this email.</p>
+        </div>
+    </div>
 </body>
 </html>
