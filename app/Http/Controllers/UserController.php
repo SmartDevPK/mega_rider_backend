@@ -7,6 +7,7 @@ use App\Services\UserService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash; // Add this import
 use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
@@ -20,26 +21,43 @@ class UserController extends Controller
      */
     public function profile(Request $request): JsonResponse
     {
-        $user = $request->user();
-        
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'user' => array_merge(
-                    $user->only([
-                        'id', 
-                        'firstname', 
-                        'lastname', 
-                        'email', 
-                        'phoneNumber',
-                        'referralCode',
-                        'is_verified',
-                        'created_at'
-                    ]),
-                    ['full_name' => $this->userService->getFullName($user)]
-                ),
-            ]
-        ]);
+        try {
+            $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not authenticated'
+                ], 401);
+            }
+            
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'user' => array_merge(
+                        $user->only([
+                            'id', 
+                            'firstname', 
+                            'lastname', 
+                            'email', 
+                            'phoneNumber',
+                            'referralCode',
+                            'is_verified',
+                            'is_active',
+                            'created_at'
+                        ]),
+                        ['full_name' => $this->userService->getFullName($user)]
+                    ),
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve profile',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -49,6 +67,13 @@ class UserController extends Controller
     {
         try {
             $user = $request->user();
+            
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not authenticated'
+                ], 401);
+            }
             
             $validated = $request->validate([
                 'firstname' => 'sometimes|string|max:255',
@@ -76,10 +101,12 @@ class UserController extends Controller
                 'message' => 'Profile updated successfully',
                 'data' => [
                     'user' => $updatedUser->only([
+                        'id',
                         'firstname', 
                         'lastname', 
                         'email', 
-                        'phoneNumber'
+                        'phoneNumber',
+                        'address'
                     ]),
                 ]
             ]);
@@ -107,6 +134,13 @@ class UserController extends Controller
         try {
             $user = $request->user();
             
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'User not authenticated'
+                ], 401);
+            }
+            
             $validated = $request->validate([
                 'password' => 'required|string',
             ]);
@@ -120,8 +154,15 @@ class UserController extends Controller
 
             $this->userService->delete($user);
             
+            // Revoke tokens
+            $user->tokens()->delete();
+            
             // Logout user
-            Auth::logout();
+            Auth::guard('web')->logout();
+            
+            // Invalidate session if using sessions
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
 
             return response()->json([
                 'success' => true,
@@ -148,20 +189,29 @@ class UserController extends Controller
      */
     public function getByReferralCode(string $code): JsonResponse
     {
-        $user = $this->userService->findByReferralCode($code);
+        try {
+            $user = $this->userService->findByReferralCode($code);
 
-        if (!$user) {
+            if (!$user) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid referral code',
+                ], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'user' => $user->only(['id', 'firstname', 'lastname', 'referralCode']),
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Invalid referral code',
-            ], 404);
+                'message' => 'Failed to find user',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'user' => $user->only(['id', 'firstname', 'lastname', 'referralCode']),
-            ]
-        ]);
     }
 }
