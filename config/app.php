@@ -122,5 +122,13 @@ return [
         'driver' => env('APP_MAINTENANCE_DRIVER', 'file'),
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
+    
+    'rate_limits' => [
+    'api' => env('API_RATE_LIMIT', 60),
+    'auth' => env('AUTH_RATE_LIMIT', 10),
+    'financial' => env('FINANCIAL_RATE_LIMIT', 5),
+    'admin' => env('ADMIN_RATE_LIMIT', 200),
+],
+
 
 ];
