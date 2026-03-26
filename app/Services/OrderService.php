@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Order;
+use App\Models\Ride;
+use App\Models\Rider;
 use App\Exceptions\OrderException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -10,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
 use InvalidArgumentException;
+use Illuminate\Support\Str;
 
 class OrderService
 {
@@ -24,14 +27,9 @@ class OrderService
     protected const CANCELLABLE_STATUSES = ['pending', 'confirmed', 'processing'];
     
     /**
-     * Valid order types
-     */
-    protected const VALID_ORDER_TYPES = ['express', 'standard', 'scheduled'];
-    
-    /**
      * Valid vehicle types
      */
-    protected const VALID_VEHICLE_TYPES = ['motorcycle', 'car', 'truck'];
+    protected const VALID_VEHICLE_TYPES = ['motorcycle', 'car', 'truck', 'bike'];
 
     /**
      * Create a new order
@@ -61,113 +59,112 @@ class OrderService
     }
 
     /**
- * Update an existing order
- *
- * @param int|string $orderIdentifier
- * @param array $data
- * @return Order
- * @throws OrderException
- * @throws ModelNotFoundException
- */
-public function update($orderIdentifier, array $data): Order
-{
-    try {
-        // Log the incoming request
-        Log::channel('daily')->info('ORDER UPDATE ATTEMPT', [
-            'identifier' => $orderIdentifier,
-            'identifier_type' => is_numeric($orderIdentifier) ? 'numeric' : 'string',
-            'data' => $data,
-            'user_id' => Auth::id(),
-            'timestamp' => now()->toDateTimeString()
-        ]);
+     * Update an existing order
+     *
+     * @param int|string $orderIdentifier
+     * @param array $data
+     * @return Order
+     * @throws OrderException
+     * @throws ModelNotFoundException
+     */
+    public function update($orderIdentifier, array $data): Order
+    {
+        try {
+            // Log the incoming request
+            Log::channel('daily')->info('ORDER UPDATE ATTEMPT', [
+                'identifier' => $orderIdentifier,
+                'identifier_type' => is_numeric($orderIdentifier) ? 'numeric' : 'string',
+                'data' => $data,
+                'user_id' => Auth::id(),
+                'timestamp' => now()->toDateTimeString()
+            ]);
 
-        // Find the order
-        $order = $this->findOrFail($orderIdentifier);
-        
-        Log::info('ORDER FOUND', [
-            'order_id' => $order->id,
-            'order_number' => $order->order_id,
-            'current_status' => $order->status,
-            'payment_status' => $order->payment_status,
-            'customer_id' => $order->customer_id
-        ]);
+            // Find the order
+            $order = $this->findOrFail($orderIdentifier);
+            
+            Log::info('ORDER FOUND', [
+                'order_id' => $order->id,
+                'order_number' => $order->order_id,
+                'current_status' => $order->status,
+                'payment_status' => $order->payment_status,
+                'customer_id' => $order->customer_id
+            ]);
 
-        // Auto-fix empty status
-        if (empty($order->status)) {
-            Log::warning('ORDER HAS EMPTY STATUS - AUTO-FIXING', [
+            // Auto-fix empty status
+            if (empty($order->status)) {
+                Log::warning('ORDER HAS EMPTY STATUS - AUTO-FIXING', [
+                    'order_id' => $order->id
+                ]);
+                $order->status = 'pending';
+                $order->save();
+            }
+            
+            $this->validateOrderUpdatable($order);
+
+            Log::info('ORDER VALIDATION PASSED', [
                 'order_id' => $order->id
             ]);
-            $order->status = 'pending';
-            $order->save();
+
+            return DB::transaction(function () use ($order, $data) {
+                Log::info('STARTING TRANSACTION', [
+                    'order_id' => $order->id
+                ]);
+
+                $updateData = $this->prepareUpdateData($order, $data);
+                
+                Log::info('UPDATE DATA PREPARED', [
+                    'order_id' => $order->id,
+                    'update_data' => $updateData
+                ]);
+
+                $order->update($updateData);
+
+                Log::info('ORDER UPDATED IN DATABASE', [
+                    'order_id' => $order->id,
+                    'updated_fields' => array_keys($updateData)
+                ]);
+
+                $freshOrder = $order->fresh();
+                
+                Log::info('ORDER FRESH DATA RETRIEVED', [
+                    'order_id' => $freshOrder->id,
+                    'new_status' => $freshOrder->status
+                ]);
+
+                $this->logOrderActivity('updated', $freshOrder, array_keys($updateData));
+                
+                return $freshOrder;
+            });
+            
+        } catch (ModelNotFoundException $e) {
+            Log::error('ORDER NOT FOUND', [
+                'identifier' => $orderIdentifier,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        } catch (OrderException $e) {
+            Log::error('ORDER VALIDATION FAILED', [
+                'identifier' => $orderIdentifier,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
+        } catch (\Exception $e) {
+            Log::error('ORDER UPDATE FAILED - UNEXPECTED ERROR', [
+                'identifier' => $orderIdentifier,
+                'error_message' => $e->getMessage(),
+                'error_code' => $e->getCode(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'error_trace' => $e->getTraceAsString()
+            ]);
+            
+            throw new OrderException(
+                'Failed to update order: ' . $e->getMessage(),
+                0,
+                $e
+            );
         }
-        
-        $this->validateOrderUpdatable($order);
-
-        Log::info('ORDER VALIDATION PASSED', [
-            'order_id' => $order->id
-        ]);
-
-        return DB::transaction(function () use ($order, $data) {
-            Log::info('STARTING TRANSACTION', [
-                'order_id' => $order->id
-            ]);
-
-            $updateData = $this->prepareUpdateData($order, $data);
-            
-            Log::info('UPDATE DATA PREPARED', [
-                'order_id' => $order->id,
-                'update_data' => $updateData
-            ]);
-
-            $order->update($updateData);
-
-            Log::info('ORDER UPDATED IN DATABASE', [
-                'order_id' => $order->id,
-                'updated_fields' => array_keys($updateData)
-            ]);
-
-            $freshOrder = $order->fresh();
-            
-            Log::info('ORDER FRESH DATA RETRIEVED', [
-                'order_id' => $freshOrder->id,
-                'new_status' => $freshOrder->status
-            ]);
-
-            $this->logOrderActivity('updated', $freshOrder, array_keys($updateData));
-            
-            return $freshOrder;
-        });
-        
-    } catch (ModelNotFoundException $e) {
-        Log::error('ORDER NOT FOUND', [
-            'identifier' => $orderIdentifier,
-            'error' => $e->getMessage()
-        ]);
-        throw $e;
-    } catch (OrderException $e) {
-        Log::error('ORDER VALIDATION FAILED', [
-            'identifier' => $orderIdentifier,
-            'error' => $e->getMessage()
-        ]);
-        throw $e;
-    } catch (\Exception $e) {
-        Log::error('ORDER UPDATE FAILED - UNEXPECTED ERROR', [
-            'identifier' => $orderIdentifier,
-            'error_message' => $e->getMessage(),
-            'error_code' => $e->getCode(),
-            'error_file' => $e->getFile(),
-            'error_line' => $e->getLine(),
-            'error_trace' => $e->getTraceAsString()
-        ]);
-        
-        // Re-throw with more specific message for debugging
-        throw new OrderException(
-            'Failed to update order: ' . $e->getMessage(),
-            0,
-            $e
-        );
     }
-}
 
     /**
      * Update order type
@@ -180,10 +177,13 @@ public function update($orderIdentifier, array $data): Order
      */
     public function updateType($orderIdentifier, string $type): Order
     {
-        if (!in_array($type, self::VALID_ORDER_TYPES)) {
+        // Define valid order types or replace with your actual valid types
+        $validTypes = ['standard', 'express', 'scheduled'];
+
+        if (!in_array($type, $validTypes)) {
             throw new InvalidArgumentException(sprintf(
                 'Invalid order type. Must be one of: %s',
-                implode(', ', self::VALID_ORDER_TYPES)
+                implode(', ', $validTypes)
             ));
         }
 
@@ -342,17 +342,14 @@ public function update($orderIdentifier, array $data): Order
      */
     private function findOrder($identifier): ?Order
     {
-        // Try numeric ID
         if (is_numeric($identifier)) {
             $order = Order::find($identifier);
             if ($order) return $order;
         }
 
-        // Try order_id string
         $order = Order::where('order_id', $identifier)->first();
         if ($order) return $order;
 
-        // Try numeric string as ID
         if (is_string($identifier) && ctype_digit($identifier)) {
             return Order::find((int)$identifier);
         }
@@ -387,29 +384,28 @@ public function update($orderIdentifier, array $data): Order
      * @param Order $order
      * @throws OrderException
      */
-  private function validateOrderUpdatable(Order $order): void
-{
-    if ($order->payment_status !== 'pending') {
-        throw new OrderException(
-            sprintf('Order cannot be updated. Payment status is "%s"', $order->payment_status)
-        );
-    }
+    private function validateOrderUpdatable(Order $order): void
+    {
+        if ($order->payment_status !== 'pending') {
+            throw new OrderException(
+                sprintf('Order cannot be updated. Payment status is "%s"', $order->payment_status)
+            );
+        }
 
-    // FIX: If status is empty, consider it updatable
-    if (empty($order->status)) {
-        Log::info('Order has empty status, allowing update', [
-            'order_id' => $order->id,
-            'order_number' => $order->order_id
-        ]);
-        return; // Allow update for orders with empty status
-    }
+        if (empty($order->status)) {
+            Log::info('Order has empty status, allowing update', [
+                'order_id' => $order->id,
+                'order_number' => $order->order_id
+            ]);
+            return;
+        }
 
-    if (!in_array($order->status, self::UPDATABLE_STATUSES)) {
-        throw new OrderException(
-            sprintf('Order cannot be updated. Current status is "%s"', $order->status)
-        );
+        if (!in_array($order->status, self::UPDATABLE_STATUSES)) {
+            throw new OrderException(
+                sprintf('Order cannot be updated. Current status is "%s"', $order->status)
+            );
+        }
     }
-}
 
     /**
      * Prepare data for order creation
@@ -427,12 +423,31 @@ public function update($orderIdentifier, array $data): Order
             $data['order_id'] = $this->generateOrderId();
         }
 
-        if (request()->hasFile('package_image')) {
-            $data['package_image'] = $this->uploadPackageImage(request()->file('package_image'));
+        if (isset($data['image']) && $data['image'] instanceof UploadedFile) {
+            $data['package_image'] = $this->uploadPackageImage($data['image']);
         }
 
-        if (!empty($data['package_insurance'])) {
-            $data['insurance_fee'] = $this->calculateInsuranceFee($data['package_worth']);
+        if (!empty($data['package']['insurance'])) {
+            $data['package_insurance'] = true;
+            $data['insurance_fee'] = $this->calculateInsuranceFee($data['package']['worth'] ?? $data['package_worth']);
+        } else {
+            $data['package_insurance'] = false;
+        }
+
+        if (isset($data['package'])) {
+            $data['package_name'] = $data['package']['name'] ?? null;
+            $data['package_worth'] = $data['package']['worth'] ?? null;
+            $data['package_insurance'] = $data['package']['insurance'] ?? false;
+            $data['insurance_fee'] = $data['package']['insurance_fee'] ?? null;
+            if (isset($data['package']['image'])) {
+                $data['package_image'] = $data['package']['image'];
+            }
+        }
+
+        if (isset($data['meta'])) {
+            $data['order_instruction'] = $data['meta']['instruction'] ?? null;
+            $data['travel_time'] = $data['meta']['travel_time'] ?? null;
+            $data['payment_method'] = $data['meta']['payment_method'] ?? null;
         }
 
         return $data;
@@ -447,15 +462,14 @@ public function update($orderIdentifier, array $data): Order
      */
     private function prepareUpdateData(Order $order, array $data): array
     {
-        if (request()->hasFile('package_image')) {
-            $data['package_image'] = $this->uploadPackageImage(request()->file('package_image'));
+        if (isset($data['package_image']) && $data['package_image'] instanceof UploadedFile) {
+            $data['package_image'] = $this->uploadPackageImage($data['package_image']);
         }
 
         if (isset($data['package_worth']) || isset($data['package_insurance'])) {
             $data = $this->recalculateInsurance($order, $data);
         }
 
-        // Remove fields that shouldn't be updated directly
         unset($data['id'], $data['order_id'], $data['customer_id'], $data['created_at']);
 
         return array_filter($data, fn($value) => !is_null($value));
@@ -524,11 +538,46 @@ public function update($orderIdentifier, array $data): Order
             $orderId = sprintf(
                 'ORD-%s-%s',
                 now()->format('Ymd'),
-                strtoupper(substr(uniqid(), -6))
+                strtoupper(Str::random(6))
             );
         } while (Order::where('order_id', $orderId)->exists());
 
         return $orderId;
+    }
+
+    /**
+     * Create order and ride record in a transaction
+     *
+     * @param array $orderData
+     * @param array $rideData
+     * @return Order
+     * @throws OrderException
+     */
+    public function createOrderWithRide(array $orderData, array $rideData): Order
+    {
+        return DB::transaction(function () use ($orderData, $rideData) {
+            $orderData['customer_id'] = Auth::id();
+            $orderData['payment_status'] = 'pending';
+            $orderData['status'] = $orderData['status'] ?? 'pending';
+            $orderData['order_id'] = $orderData['order_id'] ?? $this->generateOrderId();
+
+            if (isset($orderData['image']) && $orderData['image'] instanceof UploadedFile) {
+                $orderData['package_image'] = $this->uploadPackageImage($orderData['image']);
+            }
+
+            $order = Order::create($orderData);
+
+            $rideData['order_id'] = $order->id;
+            $rideData['driver_id'] = $rideData['driver_id'] ?? null;
+            $rideData['status'] = $rideData['status'] ?? 'pending';
+            $ride = Ride::create($rideData);
+
+            $this->logOrderActivity('created', $order, [
+                'ride_id' => $ride->id
+            ]);
+
+            return $order->fresh();
+        }, 5);
     }
 
     /**
