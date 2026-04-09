@@ -33,6 +33,9 @@ return [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
+    'paystack' => [
+    'secret' => env('PAYSTACK_SECRET_KEY'),
+]
     ],
 
 ];

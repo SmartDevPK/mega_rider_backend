@@ -129,6 +129,16 @@ return [
     'financial' => env('FINANCIAL_RATE_LIMIT', 5),
     'admin' => env('ADMIN_RATE_LIMIT', 200),
 ],
+  'motorcycle' => [
+        'base_fare' => 500,
+        'rate_per_km' => 100,
+        'rate_per_min' => 10,
+    ],
+    'car' => [
+        'base_fare' => 1000,
+        'rate_per_km' => 200,
+        'rate_per_min' => 15,
+    ],
 
 
 ];

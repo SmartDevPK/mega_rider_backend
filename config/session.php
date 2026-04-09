@@ -213,5 +213,9 @@ return [
     */
 
     'partitioned' => env('SESSION_PARTITIONED_COOKIE', false),
+    
+    'paystack' => [
+    'secret' => env('PAYSTACK_SECRET_KEY'),
+],
 
 ];
