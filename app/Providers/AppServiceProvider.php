@@ -5,6 +5,15 @@ namespace App\Providers;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\Validator;
 
+// Services
+use App\Services\GoogleMapsService;
+use App\Services\PriceService;
+use App\Services\InsuranceService;
+
+// Models & Observers
+use App\Models\RiderReview;
+use App\Observers\RiderReviewObserver;
+
 class AppServiceProvider extends ServiceProvider
 {
     /**
@@ -12,7 +21,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Register any custom services or bindings here if needed
+        // Register singleton services
+        $this->app->singleton(GoogleMapsService::class);
+        $this->app->singleton(PriceService::class);
+        $this->app->singleton(InsuranceService::class);
     }
 
     /**
@@ -21,9 +33,15 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         // Custom VIN validator
-        Validator::extend('vin', function ($attribute, $value, $parameters, $validator) {
-            // VIN must be exactly 17 characters, uppercase letters (except I, O, Q) + numbers
-            return preg_match('/^[A-HJ-NPR-Z0-9]{17}$/', $value);
-        }, 'The :attribute must be a valid 17-character VIN.');
+        Validator::extend(
+            'vin',
+            function ($attribute, $value, $parameters, $validator) {
+                return preg_match('/^[A-HJ-NPR-Z0-9]{17}$/', $value);
+            },
+            'The :attribute must be a valid 17-character VIN.'
+        );
+
+        // Register RiderReview observer
+        RiderReview::observe(RiderReviewObserver::class);
     }
 }
