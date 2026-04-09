@@ -35,13 +35,13 @@ class CreateOrderRequest extends FormRequest
             // =============================================
             // Dropoff Information (Required)
             // =============================================
-            'dropoff_address'       => 'required|string|max:255',
+            'delivery_address'       => 'required|string|max:255',
             'dropoff_lat'           => 'required|numeric|between:-90,90',
             'dropoff_lng'           => 'required|numeric|between:-180,180',
             'dropoff_city'          => 'required|string|max:100',
             'dropoff_state'         => 'required|string|max:100',
             'dropoff_zip_code'      => 'nullable|string|max:20',
-            'delivery_instructions' => 'nullable|string|max:500',
+            'special_instructions' => 'nullable|string|max:500',
 
             // =============================================
             // Sender Details (Required)
