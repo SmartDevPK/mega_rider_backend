@@ -34,7 +34,9 @@ return new class extends Migration
             // ----------------------------------------
             // Driver Specific Fields
             // ----------------------------------------
+            $table->string('role')->default('customer')->after('email'); 
             $table->boolean('is_available')->default(true)->comment("Driver availability status");
+            $table->foreignId('zone_id')->nullable()->after('is_available')->constrained('zones')->nullOnDelete();
             $table->decimal('rating', 2, 1)->nullable()->comment("Driver rating out of 5");
             $table->integer('total_trips')->default(0)->comment("Total trips completed by driver");
             $table->string('profile_image')->nullable()->comment("Driver profile image path");
@@ -43,8 +45,9 @@ return new class extends Migration
             // Security & Authentication
             // ----------------------------------------
             $table->string('password')->comment("Hashed password");
-            $table->string('password_reset_code')->nullable()->after('password')->comment("Code for password reset");
-            $table->timestamp('password_reset_expires_at')->nullable()->after('password_reset_code')->comment("When reset code expires");
+            // The following two columns are placed right after 'password' by order
+            $table->string('password_reset_code')->nullable()->comment("Code for password reset");
+            $table->timestamp('password_reset_expires_at')->nullable()->comment("When reset code expires");
             $table->rememberToken();
             $table->boolean('two_factor_enabled')->default(false)->comment("Whether 2FA is enabled");
             $table->string('two_factor_secret')->nullable()->comment("2FA secret key");
@@ -83,22 +86,7 @@ return new class extends Migration
             $table->index('rating');
         });
 
-        // ========================================
-        // Orders Table
-        // ========================================
-        Schema::create('orders', function (Blueprint $table) {
-            $table->id();
-
-            // Add your existing order fields here
-            // ...
-
-            // Driver assignment tracking
-            $table->timestamp('driver_assigned_at')->nullable()->comment("When driver was assigned to order");
-            $table->decimal('driver_rating', 2, 1)->nullable()->comment("Rating given to driver for this trip");
-            $table->text('driver_notes')->nullable()->comment("Additional notes about driver or trip");
-
-            $table->timestamps();
-        });
+       
 
         // ========================================
         // Password Reset Tokens Table
