@@ -3,598 +3,217 @@
 namespace App\Services;
 
 use App\Models\Order;
-use App\Models\Ride;
-use App\Models\Rider;
-use App\Exceptions\OrderException;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Http\UploadedFile;
-use InvalidArgumentException;
+use App\Models\OrderType;
+use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Cache;
 
 class OrderService
 {
-    /**
-     * Updatable order statuses
-     */
-    protected const UPDATABLE_STATUSES = ['pending', 'confirmed', 'processing', 'draft'];
-    
-    /**
-     * Cancellable order statuses
-     */
-    protected const CANCELLABLE_STATUSES = ['pending', 'confirmed', 'processing'];
-    
-    /**
-     * Valid vehicle types
-     */
-    protected const VALID_VEHICLE_TYPES = ['motorcycle', 'car', 'truck', 'bike'];
-
-    /**
-     * Create a new order
-     *
-     * @param array $data
-     * @return Order
-     * @throws OrderException
-     */
-    public function create(array $data): Order
+    // ----------------------------------------------------
+    // CREATE ORDER
+    // ----------------------------------------------------
+    public function createOrder(array $data, int $customerId): Order
     {
-        return DB::transaction(function () use ($data) {
-            try {
-                $orderData = $this->prepareCreateData($data);
-                $order = Order::create($orderData);
+        $data['order_id'] = $this->generateOrderId();
+        $data['customer_id'] = $customerId;
+        $data['status'] = 'pending';
 
-                $this->logOrderActivity('created', $order);
-                
-                return $order->fresh();
-            } catch (\Exception $e) {
-                Log::error('Order creation failed', [
-                    'error' => $e->getMessage(),
-                    'data' => $data
-                ]);
-                throw new OrderException('Failed to create order: ' . $e->getMessage(), 0, $e);
-            }
-        });
-    }
-
-    /**
-     * Update an existing order
-     *
-     * @param int|string $orderIdentifier
-     * @param array $data
-     * @return Order
-     * @throws OrderException
-     * @throws ModelNotFoundException
-     */
-    public function update($orderIdentifier, array $data): Order
-    {
-        try {
-            // Log the incoming request
-            Log::channel('daily')->info('ORDER UPDATE ATTEMPT', [
-                'identifier' => $orderIdentifier,
-                'identifier_type' => is_numeric($orderIdentifier) ? 'numeric' : 'string',
-                'data' => $data,
-                'user_id' => Auth::id(),
-                'timestamp' => now()->toDateTimeString()
-            ]);
-
-            // Find the order
-            $order = $this->findOrFail($orderIdentifier);
-            
-            Log::info('ORDER FOUND', [
-                'order_id' => $order->id,
-                'order_number' => $order->order_id,
-                'current_status' => $order->status,
-                'payment_status' => $order->payment_status,
-                'customer_id' => $order->customer_id
-            ]);
-
-            // Auto-fix empty status
-            if (empty($order->status)) {
-                Log::warning('ORDER HAS EMPTY STATUS - AUTO-FIXING', [
-                    'order_id' => $order->id
-                ]);
-                $order->status = 'pending';
-                $order->save();
-            }
-            
-            $this->validateOrderUpdatable($order);
-
-            Log::info('ORDER VALIDATION PASSED', [
-                'order_id' => $order->id
-            ]);
-
-            return DB::transaction(function () use ($order, $data) {
-                Log::info('STARTING TRANSACTION', [
-                    'order_id' => $order->id
-                ]);
-
-                $updateData = $this->prepareUpdateData($order, $data);
-                
-                Log::info('UPDATE DATA PREPARED', [
-                    'order_id' => $order->id,
-                    'update_data' => $updateData
-                ]);
-
-                $order->update($updateData);
-
-                Log::info('ORDER UPDATED IN DATABASE', [
-                    'order_id' => $order->id,
-                    'updated_fields' => array_keys($updateData)
-                ]);
-
-                $freshOrder = $order->fresh();
-                
-                Log::info('ORDER FRESH DATA RETRIEVED', [
-                    'order_id' => $freshOrder->id,
-                    'new_status' => $freshOrder->status
-                ]);
-
-                $this->logOrderActivity('updated', $freshOrder, array_keys($updateData));
-                
-                return $freshOrder;
-            });
-            
-        } catch (ModelNotFoundException $e) {
-            Log::error('ORDER NOT FOUND', [
-                'identifier' => $orderIdentifier,
-                'error' => $e->getMessage()
-            ]);
-            throw $e;
-        } catch (OrderException $e) {
-            Log::error('ORDER VALIDATION FAILED', [
-                'identifier' => $orderIdentifier,
-                'error' => $e->getMessage()
-            ]);
-            throw $e;
-        } catch (\Exception $e) {
-            Log::error('ORDER UPDATE FAILED - UNEXPECTED ERROR', [
-                'identifier' => $orderIdentifier,
-                'error_message' => $e->getMessage(),
-                'error_code' => $e->getCode(),
-                'error_file' => $e->getFile(),
-                'error_line' => $e->getLine(),
-                'error_trace' => $e->getTraceAsString()
-            ]);
-            
-            throw new OrderException(
-                'Failed to update order: ' . $e->getMessage(),
-                0,
-                $e
-            );
-        }
-    }
-
-    /**
-     * Update order type
-     *
-     * @param int|string $orderIdentifier
-     * @param string $type
-     * @return Order
-     * @throws OrderException
-     * @throws InvalidArgumentException
-     */
-    public function updateType($orderIdentifier, string $type): Order
-    {
-        // Define valid order types or replace with your actual valid types
-        $validTypes = ['standard', 'express', 'scheduled'];
-
-        if (!in_array($type, $validTypes)) {
-            throw new InvalidArgumentException(sprintf(
-                'Invalid order type. Must be one of: %s',
-                implode(', ', $validTypes)
-            ));
-        }
-
-        $order = $this->findOrFail($orderIdentifier);
-        $order->update(['order_type' => $type]);
-
-        $this->logOrderActivity('type updated', $order, ['order_type' => $type]);
-        
-        return $order->fresh();
-    }
-
-    /**
-     * Update vehicle type
-     *
-     * @param int|string $orderIdentifier
-     * @param string $vehicleType
-     * @return Order
-     * @throws OrderException
-     * @throws InvalidArgumentException
-     */
-    public function updateVehicleType($orderIdentifier, string $vehicleType): Order
-    {
-        if (!in_array($vehicleType, self::VALID_VEHICLE_TYPES)) {
-            throw new InvalidArgumentException(sprintf(
-                'Invalid vehicle type. Must be one of: %s',
-                implode(', ', self::VALID_VEHICLE_TYPES)
-            ));
-        }
-
-        $order = $this->findOrFail($orderIdentifier);
-        $order->update(['vehicle_type' => $vehicleType]);
-
-        $this->logOrderActivity('vehicle type updated', $order, ['vehicle_type' => $vehicleType]);
-        
-        return $order->fresh();
-    }
-
-    /**
-     * Cancel an order
-     *
-     * @param int|string $orderIdentifier
-     * @param string|null $reason
-     * @return Order
-     * @throws OrderException
-     */
-    public function cancelOrder($orderIdentifier, ?string $reason = null): Order
-    {
-        $order = $this->findOrFail($orderIdentifier);
-
-        if (!in_array($order->status, self::CANCELLABLE_STATUSES)) {
-            throw new OrderException(
-                sprintf('Order cannot be cancelled in "%s" status', $order->status)
-            );
-        }
-
-        $order->update([
-            'status' => 'cancelled',
-            'cancellation_reason' => $reason,
-            'cancelled_at' => now()
-        ]);
-
-        $this->logOrderActivity('cancelled', $order, ['reason' => $reason]);
-        
-        return $order->fresh();
-    }
-
-    /**
-     * Get order basic details
-     *
-     * @param int|string $orderIdentifier
-     * @return array
-     * @throws OrderException
-     */
-    public function getBasicDetails($orderIdentifier): array
-    {
-        $order = $this->findOrFail($orderIdentifier);
-        
-        return $order->only([
-            'id',
-            'order_id',
-            'pickup_address',
-            'pickup_latitude',
-            'pickup_longitude',
-            'pickup_city',
-            'pickup_state',
-            'delivery_address',
-            'delivery_latitude',
-            'delivery_longitude',
-            'dropoff_city',
-            'dropoff_state',
-            'sender_name',
-            'sender_email',
-            'sender_phone',
-            'receiver_name',
-            'receiver_email',
-            'receiver_phone',
-            'package_name',
-            'package_image',
-            'package_worth',
-            'package_insurance',
-            'insurance_fee',
-            'vehicle_type',
-            'status',
-            'payment_status',
-            'created_at'
-        ]);
-    }
-
-    /**
-     * Get order with relationships
-     *
-     * @param int|string $orderIdentifier
-     * @param array $relations
-     * @return Order|null
-     */
-    public function getOrderWithRelations($orderIdentifier, array $relations = ['customer', 'driver']): ?Order
-    {
-        $order = $this->findOrder($orderIdentifier);
-        
-        if ($order && !empty($relations)) {
-            $order->load($relations);
-        }
-        
-        return $order;
-    }
-
-    /**
-     * Get customer order statistics
-     *
-     * @param int $customerId
-     * @return array
-     */
-    public function getCustomerOrderStats(int $customerId): array
-    {
-        $orders = Order::where('customer_id', $customerId);
-        $paidOrders = (clone $orders)->where('payment_status', 'paid');
-
-        return [
-            'total_orders' => $orders->count(),
-            'pending_orders' => (clone $orders)->where('status', 'pending')->count(),
-            'processing_orders' => (clone $orders)->whereIn('status', ['confirmed', 'processing'])->count(),
-            'completed_orders' => (clone $orders)->where('status', 'completed')->count(),
-            'cancelled_orders' => (clone $orders)->where('status', 'cancelled')->count(),
-            'total_spent' => $paidOrders->sum('package_worth'),
-            'total_insurance_fees' => $paidOrders->sum('insurance_fee'),
-            'average_order_value' => $paidOrders->avg('package_worth') ?? 0,
-            'recent_orders' => (clone $orders)->latest()->take(5)->get()
-        ];
-    }
-
-    /**
-     * Find order by various identifiers
-     *
-     * @param int|string $identifier
-     * @return Order|null
-     */
-    private function findOrder($identifier): ?Order
-    {
-        if (is_numeric($identifier)) {
-            $order = Order::find($identifier);
-            if ($order) return $order;
-        }
-
-        $order = Order::where('order_id', $identifier)->first();
-        if ($order) return $order;
-
-        if (is_string($identifier) && ctype_digit($identifier)) {
-            return Order::find((int)$identifier);
-        }
-
-        return null;
-    }
-
-    /**
-     * Find order or fail
-     *
-     * @param int|string $identifier
-     * @return Order
-     * @throws ModelNotFoundException
-     */
-    private function findOrFail($identifier): Order
-    {
-        $order = $this->findOrder($identifier);
-        
-        if (!$order) {
-            throw (new ModelNotFoundException())->setModel(
-                Order::class,
-                $identifier
-            );
-        }
-        
-        return $order;
-    }
-
-    /**
-     * Validate if order can be updated
-     *
-     * @param Order $order
-     * @throws OrderException
-     */
-    private function validateOrderUpdatable(Order $order): void
-    {
-        if ($order->payment_status !== 'pending') {
-            throw new OrderException(
-                sprintf('Order cannot be updated. Payment status is "%s"', $order->payment_status)
-            );
-        }
-
-        if (empty($order->status)) {
-            Log::info('Order has empty status, allowing update', [
-                'order_id' => $order->id,
-                'order_number' => $order->order_id
-            ]);
-            return;
-        }
-
-        if (!in_array($order->status, self::UPDATABLE_STATUSES)) {
-            throw new OrderException(
-                sprintf('Order cannot be updated. Current status is "%s"', $order->status)
-            );
-        }
-    }
-
-    /**
-     * Prepare data for order creation
-     *
-     * @param array $data
-     * @return array
-     */
-    private function prepareCreateData(array $data): array
-    {
-        $data['customer_id'] = Auth::id();
-        $data['payment_status'] = 'pending';
-        $data['status'] = $data['status'] ?? 'pending';
-        
-        if (empty($data['order_id'])) {
-            $data['order_id'] = $this->generateOrderId();
-        }
-
-        if (isset($data['image']) && $data['image'] instanceof UploadedFile) {
-            $data['package_image'] = $this->uploadPackageImage($data['image']);
-        }
-
-        if (!empty($data['package']['insurance'])) {
-            $data['package_insurance'] = true;
-            $data['insurance_fee'] = $this->calculateInsuranceFee($data['package']['worth'] ?? $data['package_worth']);
+        if (isset($data['package_image']) && $data['package_image'] instanceof \Illuminate\Http\UploadedFile) {
+            $data['package_image'] = $data['package_image']->store('package_images', 'public');
         } else {
-            $data['package_insurance'] = false;
+            $data['package_image'] = null;
         }
 
-        if (isset($data['package'])) {
-            $data['package_name'] = $data['package']['name'] ?? null;
-            $data['package_worth'] = $data['package']['worth'] ?? null;
-            $data['package_insurance'] = $data['package']['insurance'] ?? false;
-            $data['insurance_fee'] = $data['package']['insurance_fee'] ?? null;
-            if (isset($data['package']['image'])) {
-                $data['package_image'] = $data['package']['image'];
-            }
-        }
-
-        if (isset($data['meta'])) {
-            $data['order_instruction'] = $data['meta']['instruction'] ?? null;
-            $data['travel_time'] = $data['meta']['travel_time'] ?? null;
-            $data['payment_method'] = $data['meta']['payment_method'] ?? null;
-        }
-
-        return $data;
+        return Order::create($data);
     }
 
-    /**
-     * Prepare data for order update
-     *
-     * @param Order $order
-     * @param array $data
-     * @return array
-     */
-    private function prepareUpdateData(Order $order, array $data): array
-    {
-        if (isset($data['package_image']) && $data['package_image'] instanceof UploadedFile) {
-            $data['package_image'] = $this->uploadPackageImage($data['package_image']);
-        }
-
-        if (isset($data['package_worth']) || isset($data['package_insurance'])) {
-            $data = $this->recalculateInsurance($order, $data);
-        }
-
-        unset($data['id'], $data['order_id'], $data['customer_id'], $data['created_at']);
-
-        return array_filter($data, fn($value) => !is_null($value));
-    }
-
-    /**
-     * Upload package image
-     *
-     * @param UploadedFile $image
-     * @return string
-     * @throws OrderException
-     */
-    private function uploadPackageImage(UploadedFile $image): string
-    {
-        try {
-            $path = $image->store('packages', 'public');
-            
-            if (!$path) {
-                throw new OrderException('Failed to upload package image');
-            }
-            
-            return $path;
-        } catch (\Exception $e) {
-            throw new OrderException('Image upload failed: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Recalculate insurance fee
-     *
-     * @param Order $order
-     * @param array $data
-     * @return array
-     */
-    private function recalculateInsurance(Order $order, array $data): array
-    {
-        $worth = $data['package_worth'] ?? $order->package_worth;
-        $insurance = $data['package_insurance'] ?? $order->package_insurance;
-
-        $data['insurance_fee'] = $insurance 
-            ? $this->calculateInsuranceFee($worth)
-            : null;
-
-        return $data;
-    }
-
-    /**
-     * Calculate insurance fee
-     *
-     * @param float $worth
-     * @return float
-     */
-    private function calculateInsuranceFee(float $worth): float
-    {
-        return max(100.00, round($worth * 0.02, 2));
-    }
-
-    /**
-     * Generate unique order ID
-     *
-     * @return string
-     */
+    // ----------------------------------------------------
+    // GENERATE UNIQUE ORDER ID
+    // ----------------------------------------------------
     private function generateOrderId(): string
     {
         do {
-            $orderId = sprintf(
-                'ORD-%s-%s',
-                now()->format('Ymd'),
-                strtoupper(Str::random(6))
-            );
-        } while (Order::where('order_id', $orderId)->exists());
+            $id = 'MDX' . strtoupper(Str::random(5));
+        } while (Order::where('order_id', $id)->exists());
 
-        return $orderId;
+        return $id;
     }
 
-    /**
-     * Create order and ride record in a transaction
-     *
-     * @param array $orderData
-     * @param array $rideData
-     * @return Order
-     * @throws OrderException
-     */
-    public function createOrderWithRide(array $orderData, array $rideData): Order
+    // ----------------------------------------------------
+    // UPDATE ORDER TYPE
+    // ----------------------------------------------------
+    public function updateOrderType(Order $order, int $orderTypeId): array
     {
-        return DB::transaction(function () use ($orderData, $rideData) {
-            $orderData['customer_id'] = Auth::id();
-            $orderData['payment_status'] = 'pending';
-            $orderData['status'] = $orderData['status'] ?? 'pending';
-            $orderData['order_id'] = $orderData['order_id'] ?? $this->generateOrderId();
+        $orderType = OrderType::find($orderTypeId);
 
-            if (isset($orderData['image']) && $orderData['image'] instanceof UploadedFile) {
-                $orderData['package_image'] = $this->uploadPackageImage($orderData['image']);
-            }
+        if (!$orderType) {
+            throw new \Exception('ORDER_TYPE_NOT_FOUND', 404);
+        }
 
-            $order = Order::create($orderData);
+        if (!$order->pickup_latitude || !$order->pickup_longitude ||
+            !$order->dropoff_latitude || !$order->dropoff_longitude) {
+            throw new \Exception('ORDER_COORDINATES_MISSING', 400);
+        }
 
-            $rideData['order_id'] = $order->id;
-            $rideData['driver_id'] = $rideData['driver_id'] ?? null;
-            $rideData['status'] = $rideData['status'] ?? 'pending';
-            $ride = Ride::create($rideData);
+        $order->order_type_id = $orderTypeId;
+        $order->date_modified = Carbon::now();
 
-            $this->logOrderActivity('created', $order, [
-                'ride_id' => $ride->id
-            ]);
+        $pricing = $this->calculatePricing($order, $orderType);
 
-            return $order->fresh();
-        }, 5);
+        $order->delivery_fee      = $pricing['delivery_fee'];
+        $order->surge_multiplier  = $pricing['surge_multiplier'];
+        $order->surge_fee         = $pricing['surge_fee'];
+        $order->total_amount      = $pricing['total_amount'];
+
+        $order->save();
+
+        return [
+            'order_id'      => $order->order_id,
+            'order_type_id' => $orderTypeId,
+            'pricing'       => $pricing
+        ];
     }
 
-    /**
-     * Log order activity
-     *
-     * @param string $action
-     * @param Order $order
-     * @param array $additionalData
-     * @return void
-     */
-    private function logOrderActivity(string $action, Order $order, array $additionalData = []): void
+    // ----------------------------------------------------
+    // CALCULATE PRICING (BASE + SURGE)
+    // ----------------------------------------------------
+    protected function calculatePricing(Order $order, OrderType $orderType): array
     {
-        Log::info("Order {$action}", array_merge([
-            'order_id' => $order->id,
-            'order_number' => $order->order_id,
-            'customer_id' => $order->customer_id,
-            'user_id' => Auth::id()
-        ], $additionalData));
+        $distanceKm = $this->calculateDistance(
+            $order->pickup_latitude,
+            $order->pickup_longitude,
+            $order->dropoff_latitude,
+            $order->dropoff_longitude
+        );
+
+        $deliveryFee = $distanceKm <= $orderType->base_distance
+            ? $orderType->base_price
+            : $orderType->base_price + ($distanceKm - $orderType->base_distance) * $orderType->price_per_km;
+
+        $zoneId = $order->zone_id;
+        $surgeMultiplier = is_null($zoneId) ? 0 : Cache::get("surge:zone:{$zoneId}", 0);
+
+        $surgeFee = $deliveryFee * $surgeMultiplier;
+        $totalAmount = $deliveryFee + $surgeFee;
+
+        return [
+            'delivery_fee'     => $deliveryFee,
+            'surge_multiplier' => $surgeMultiplier,
+            'surge_fee'        => $surgeFee,
+            'total_amount'     => $totalAmount
+        ];
     }
+
+    // ----------------------------------------------------
+    // CALCULATE DISTANCE (Haversine)
+    // ----------------------------------------------------
+    protected function calculateDistance(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $earthRadius = 6371;
+        $dLat = deg2rad($lat2 - $lat1);
+        $dLng = deg2rad($lng2 - $lng1);
+
+        $a = sin($dLat / 2) ** 2 +
+             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
+             sin($dLng / 2) ** 2;
+
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+        return $earthRadius * $c;
+    }
+
+    // ----------------------------------------------------
+    // GET FULL ORDER PRICING SUMMARY
+    // ----------------------------------------------------
+    public function getOrderSummary(Order $order): array
+{
+    $zoneId = $order->zone_id;
+    $surgeMultiplier = $this->getSurgeMultiplier($zoneId);
+
+    $deliveryFee = $this->calculateDeliveryFee($order);
+    $surgeFee = $deliveryFee * $surgeMultiplier;
+
+    $discount = 0;
+
+    $insuranceFee = 0;
+    if ($order->insurance_flag) {
+        $insurancePercentage = 1.5; // Configurable
+        $insuranceFee = ($insurancePercentage / 100) * ($order->package_worth ?? 0);
+    }
+
+    $subtotal = $deliveryFee + $surgeFee + $insuranceFee - $discount;
+    $processorFee = ($subtotal * 0.015) + 100; // Example for Paystack
+    $totalAmount = $subtotal + $processorFee;
+
+    return [
+        'delivery_fee'      => round($deliveryFee, 2),
+        'discount'          => round($discount, 2),
+        'surge_multiplier'  => $surgeMultiplier,
+        'surge_fee'         => round($surgeFee, 2),
+        'insurance_fee'     => round($insuranceFee, 2),
+        'processor_fee'     => round($processorFee, 2),
+        'total_amount'      => round($totalAmount, 2),
+    ];
+}
+
+// ----------------------------------------------------
+// DELIVERY FEE BASED ON ORDER TYPE & DISTANCE
+// ----------------------------------------------------
+private function calculateDeliveryFee(Order $order): float
+{
+    $orderType = $order->orderType;
+    if (!$orderType) {
+        throw new \Exception('Order type not assigned');
+    }
+
+    $distance = $order->distance ?? $this->calculateDistance(
+        $order->pickup_latitude,
+        $order->pickup_longitude,
+        $order->dropoff_latitude,
+        $order->dropoff_longitude
+    );
+
+    if ($distance <= $orderType->base_distance) {
+        return $orderType->base_price;
+    }
+
+    $extra = $distance - $orderType->base_distance;
+    return $orderType->base_price + ($extra * $orderType->price_per_km);
+}
+
+// ----------------------------------------------------
+// SURGE MULTIPLIER (CACHED PER ZONE)
+// ----------------------------------------------------
+private function getSurgeMultiplier(?int $zoneId): float
+{
+    if (!$zoneId) {
+        return 0.0;
+    }
+
+    $cacheKey = "surge:zone:{$zoneId}";
+
+    return Cache::remember($cacheKey, 30, function () use ($zoneId) {
+
+        // Count of active orders in this zone
+        $activeOrders = Order::whereIn('status', ['pending', 'searching'])
+            ->where('zone_id', $zoneId)
+            ->count();
+
+        // Count of available riders/drivers in this zone
+        $availableRiders = User::availableDrivers($zoneId)->count();
+
+        $ratio = $activeOrders / max($availableRiders, 1);
+
+        // Map ratio to surge multiplier
+        return match(true) {
+            $ratio <= 1    => 0.0,
+            $ratio <= 1.5  => 0.2,
+            $ratio <= 2    => 0.5,
+            $ratio <= 3    => 1.0,
+            default        => 1.5,
+        };
+    });
+}
+
 }
