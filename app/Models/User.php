@@ -30,6 +30,8 @@ class User extends Authenticatable
         'longitude',
         'profile_picture',
         'notifications',
+        'zone_id',
+        'role',
         
         // Driver Specific Fields
         'is_available',
@@ -188,6 +190,14 @@ class User extends Authenticatable
             'password_reset_expires_at' => null,
         ])->save();
     }
+    /**
+     * Payment gate way
+     */
+
+    public function transactions()
+{
+    return $this->hasMany(Transaction::class);
+}
 
     /**
      * Check if user is a driver (has driver-specific fields).
@@ -328,8 +338,8 @@ class User extends Authenticatable
     public function scopeAvailableDrivers($query)
     {
         return $query->where('is_available', true)
-                     ->whereNotNull('profile_image')
-                     ->where('is_active', true);
+                 ->whereNotNull('profile_image')
+                 ->where('zone_id', $zoneId);
     }
 
     /**
