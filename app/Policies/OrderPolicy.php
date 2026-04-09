@@ -31,4 +31,10 @@ class OrderPolicy
         // Both customer and driver can trigger emergency
         return $user->id === $order->customer_id || $user->id === $order->driver_id;
     }
+
+     public function cancel(User $user, Order $order): bool
+    {
+        // Only the customer who owns the order can cancel it
+        return $user->id === $order->customer_id;
+    }
 }
