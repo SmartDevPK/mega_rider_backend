@@ -12,6 +12,8 @@ use App\Http\Controllers\{
     OrderCancellationController,
     ReasonController,
     UserReportController,
+    PromotionController,
+    WalletController,
 };
 
 /*
@@ -31,6 +33,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:10,5');
     Route::post('/resend-verification', [AuthController::class, 'resendVerification'])->middleware('throttle:3,30');
+    
 });
 
 //  Password Reset
@@ -42,6 +45,7 @@ Route::prefix('password')->group(function () {
 
 // Referral
 Route::get('/referral/{code}', [UserController::class, 'getByReferralCode'])->middleware('throttle:30,1');
+Route::get('/promotions/live', [PromotionController::class, 'live']);
 
 // 🩺 Health Check
 Route::get('/health', fn() => response()->json([
@@ -50,8 +54,11 @@ Route::get('/health', fn() => response()->json([
     'version'   => '1.0.0',
 ]));
 
-// Test endpoint
-Route::post('/test', fn() => response()->json(['message' => 'API is working']));
+// Wallet balance (requires auth but placed here for visibility)
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/wallet/balance', [WalletController::class, 'balance']);
+    Route::get('/wallet/transactions', [WalletController::class, 'transactions']);
+});
 
 
 /*
@@ -90,6 +97,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Order listing & details
     Route::get('/summary', [OrderController::class, 'summary']);
     Route::get('/order-types', [OrderController::class, 'getOrderTypes']);
+    Route::get('/payment-breakdown', [OrderController::class, 'paymentBreakdown']);
 
     // Order modifications
     Route::post('/live-packages', [OrderController::class, 'livePackages']);

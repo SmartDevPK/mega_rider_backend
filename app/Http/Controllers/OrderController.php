@@ -466,7 +466,7 @@ class OrderController extends Controller
     $order->special_instructions = $request->instruction;
     $order->date_modified = now();
 
-    // ✅ Persist changes
+    // Persist changes
     $order->save();
 
     return response()->json([
@@ -479,5 +479,56 @@ class OrderController extends Controller
         ]
     ]);
 }
+
+public function paymentBreakdown(Request $request)
+{
+    // Validate input
+    $request->validate([
+        'order_id' => 'required|string|exists:orders,order_id',
+    ]);
+
+    $user = $request->user();
+
+    // Optional role check
+    if ($user->role !== 'customer') {
+        return response()->json([
+            'success' => false,
+            'code' => 'FORBIDDEN'
+        ], 403);
+    }
+
+    // Fetch order
+    $order = Order::where('order_id', $request->order_id)
+                  ->where('customer_id', $user->id)
+                  ->with('customer')
+                  ->first();
+
+    if (!$order) {
+        return response()->json([
+            'success' => false,
+            'code' => 'ORDER_NOT_FOUND'
+        ], 404);
+    }
+
+    try {
+        // Delegate logic to service
+        $breakdown = $this->orderService->getPaymentBreakdown($order);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment breakdown fetched successfully',
+            'data' => $breakdown
+        ]);
+
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'code' => 'SERVER_ERROR'
+        ], 500);
+    }
+}
+
+
+
 
 }

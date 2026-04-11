@@ -216,4 +216,51 @@ private function getSurgeMultiplier(?int $zoneId): float
     });
 }
 
+public function getPaymentBreakdown(Order $order): array
+{
+    $deliveryFee = $order->delivery_fee ?? 0;
+    $discount = $order->discount_amount ?? 0;
+
+    // 🔥 Surge
+    $surgeFee = $order->surge_fee ?? 0;
+
+    // Optional dynamic surge (if you want real-time)
+    /*
+    $zoneId = $order->zone_id;
+    $cacheKey = "surge:zone:{$zoneId}";
+    $multiplier = Cache::get($cacheKey, 0);
+    $surgeFee = $deliveryFee * $multiplier;
+    */
+
+    // 🛡️ Insurance
+    $insuranceFee = $order->is_insured ? ($order->insurance_fee ?? 0) : 0;
+
+    // 💳 Processor fee
+    $processorFee = $order->payment_processor_fee ?? 0;
+
+    // 🧮 Total
+    $totalAmount =
+        $deliveryFee
+        - $discount
+        + $surgeFee
+        + $insuranceFee
+        + $processorFee;
+
+    return [
+        'date_paid' => optional($order->paid_at)->format('Y-m-d'),
+
+        'delivery_fee' => round($deliveryFee, 2),
+        'discount' => round($discount, 2),
+        'surge_fee' => round($surgeFee, 2),
+        'insurance_fee' => round($insuranceFee, 2),
+        'processor_fee' => round($processorFee, 2),
+        'total_amount' => round($totalAmount, 2),
+
+        'customer' => [
+            'firstname' => $order->customer->firstname ?? null
+        ]
+    ];
+}
+
+
 }
