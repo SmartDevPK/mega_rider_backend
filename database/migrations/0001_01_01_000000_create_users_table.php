@@ -12,6 +12,17 @@ return new class extends Migration
     public function up(): void
     {
         // ========================================
+        // Zones Table (must exist before users)
+        // ========================================
+        Schema::create('zones', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->geometry('boundary')->nullable(); // optional, for geo-fencing
+            $table->timestamps();
+            // Add any other zone fields you need (e.g., coordinates, city, etc.)
+        });
+
+        // ========================================
         // Users Table
         // ========================================
         Schema::create('users', function (Blueprint $table) {
@@ -34,9 +45,13 @@ return new class extends Migration
             // ----------------------------------------
             // Driver Specific Fields
             // ----------------------------------------
-            $table->string('role')->default('customer')->after('email'); 
+            $table->string('role')->default('customer');
             $table->boolean('is_available')->default(true)->comment("Driver availability status");
-            $table->foreignId('zone_id')->nullable()->after('is_available')->constrained('zones')->nullOnDelete();
+            
+            // Define the foreign key column FIRST, then add the constraint
+            $table->unsignedBigInteger('zone_id')->nullable()->comment('Zone ID reference');
+            $table->foreign('zone_id')->references('id')->on('zones')->onDelete('set null');
+            
             $table->decimal('rating', 2, 1)->nullable()->comment("Driver rating out of 5");
             $table->integer('total_trips')->default(0)->comment("Total trips completed by driver");
             $table->string('profile_image')->nullable()->comment("Driver profile image path");
@@ -45,7 +60,6 @@ return new class extends Migration
             // Security & Authentication
             // ----------------------------------------
             $table->string('password')->comment("Hashed password");
-            // The following two columns are placed right after 'password' by order
             $table->string('password_reset_code')->nullable()->comment("Code for password reset");
             $table->timestamp('password_reset_expires_at')->nullable()->comment("When reset code expires");
             $table->rememberToken();
@@ -84,9 +98,8 @@ return new class extends Migration
             $table->index('is_active');
             $table->index('is_available');
             $table->index('rating');
+            $table->index('zone_id'); // optional, improves join performance
         });
-
-       
 
         // ========================================
         // Password Reset Tokens Table
@@ -117,7 +130,9 @@ return new class extends Migration
     {
         Schema::dropIfExists('sessions');
         Schema::dropIfExists('password_reset_tokens');
-        Schema::dropIfExists('orders');
         Schema::dropIfExists('users');
+        Schema::dropIfExists('zones');
+        // 'orders' is not created here; remove it to avoid errors on rollback
+        // Schema::dropIfExists('orders'); 
     }
 };
