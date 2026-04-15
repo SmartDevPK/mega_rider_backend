@@ -21,7 +21,6 @@ return new class extends Migration
         // Add order_type_id to orders
         Schema::table('orders', function (Blueprint $table) {
             $table->foreignId('order_type_id')->nullable()->constrained('order_types')->nullOnDelete();
-            $table->timestamp('date_modified')->nullable();
             $table->decimal('delivery_fee', 10, 2)->default(0);
             $table->decimal('surge_multiplier', 5, 2)->default(0);
             $table->decimal('surge_fee', 10, 2)->default(0);
