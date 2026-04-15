@@ -13,13 +13,20 @@ return new class extends Migration
     {
         Schema::create('wallet_transactions', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('customer_id')->constrained()->cascadeOnDelete();
+
+            $table->foreignId('customer_id')
+                  ->constrained('users')
+                  ->cascadeOnDelete();
+
             $table->decimal('amount', 12, 2);
             $table->string('type'); // credit | debit
-            $table->string('purpose');// wallet_topup, order_payment, refund
+            $table->string('purpose'); // wallet_topup, order_payment, refund
+
             $table->timestamps();
+
+            // index should be INSIDE here
+            $table->index('customer_id');
         });
-        $table->index(['customer_id', 'id']);
     }
 
     /**
