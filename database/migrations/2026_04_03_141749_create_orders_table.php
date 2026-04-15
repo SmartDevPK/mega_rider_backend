@@ -15,7 +15,7 @@ return new class extends Migration
             // Relationships
             $table->foreignId('customer_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('rider_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('order_type_id')->nullable()->constrained('order_types')->nullOnDelete();
+            // $table->foreignId('order_type_id')->nullable()->constrained('order_types')->nullOnDelete();?
             $table->foreignId('zone_id')->nullable()->constrained('zones')->nullOnDelete();
 
             // Pickup Information
@@ -50,19 +50,19 @@ return new class extends Migration
             $table->decimal('price', 10, 2)->nullable();
             $table->string('item_name')->nullable();
             $table->string('package_image')->nullable();
-            $table->decimal('insurance_fee', 10, 2)->default(0)->after('insurance_flag');
+            $table->decimal('insurance_fee', 10, 2)->default(0);
             $table->boolean('insurance_flag')->default(false);
 
             // Instructions & Notes
              $table->string('special_instructions', 500)->nullable();
-             $table->timestamp('date_modified')->nullable();
+            //  $table->timestamp('date_modified')->nullable();
 
             // Pricing & Surge (added for order type updates)
             $table->timestamp('date_modified')->nullable();
-            $table->decimal('delivery_fee', 10, 2)->nullable();
-            $table->decimal('surge_multiplier', 5, 2)->nullable();
-            $table->decimal('surge_fee', 10, 2)->nullable();
-            $table->decimal('total_amount', 10, 2)->nullable();
+            // $table->decimal('delivery_fee', 10, 2)->nullable();
+            // $table->decimal('surge_multiplier', 5, 2)->nullable();
+            // $table->decimal('surge_fee', 10, 2)->nullable();
+            // $table->decimal('total_amount', 10, 2)->nullable();
 
             // Order Status
             $table->enum('status', ['pending', 'assigned', 'picked_up', 'delivered', 'cancelled'])
