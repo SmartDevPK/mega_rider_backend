@@ -52,10 +52,17 @@ return new class extends Migration
             $table->string('package_image')->nullable();
             $table->decimal('insurance_fee', 10, 2)->default(0);
             $table->boolean('insurance_flag')->default(false);
+            
+            // Streak Tracking
+            $table->boolean('streak_counted')->default(false);
+             $table->index('streak_counted');
 
             // Instructions & Notes
              $table->string('special_instructions', 500)->nullable();
             //  $table->timestamp('date_modified')->nullable();
+
+            // Promo & Discounts
+             $table->decimal('discount_amount', 10, 2)->default(0);
 
             // Pricing & Surge (added for order type updates)
             $table->timestamp('date_modified')->nullable();

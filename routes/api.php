@@ -109,6 +109,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
    Route::prefix('orders')->group(function () {
     Route::post('/', [OrderController::class, 'store'])->middleware('throttle:20,5');
     Route::get('/', [OrderController::class, 'index']);
+
     
     // SPECIFIC routes must come BEFORE parameterised ones
     Route::get('/activities', [OrderController::class, 'activities']);
@@ -118,7 +119,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/{order_id}', [OrderController::class, 'update']);
     Route::patch('/{order_id}', [OrderController::class, 'update']);
     Route::post('/cancel', [OrderCancellationController::class, 'cancel']);
+    
+    // Streak update (internal/system-triggered, not user-facing)
+    // Route::post('/delivered/streak-update', [OrderController::class, 'streakUpdate']);
 });
+
+Route::post('/orders/delivered/streak-update', [OrderController::class, 'streakUpdate'])
+    ->middleware('auth:sanctum')
+    ->name('streak.update');
+
+    Route::post('/orders/apply-promo', [OrderController::class, 'applyPromo'])
+    ->middleware('auth:sanctum');
+
+
+
 
     //  Reviews
     Route::prefix('reviews')->group(function () {

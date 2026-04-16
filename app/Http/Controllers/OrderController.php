@@ -7,6 +7,8 @@ use App\Http\Requests\StoreOrderRequest;
 use App\Http\Requests\UpdateOrderRequest;
 use App\Http\Requests\UpdateOrderTypeRequest;
 use App\Models\CustomerSurCharge;
+use App\Services\PromoService;
+use App\Actions\Streak\UpdateDailyStreak;
 use App\Models\OrderType;
 use App\Services\OrderService;
 use Illuminate\Http\Request;
@@ -426,109 +428,179 @@ class OrderController extends Controller
         ]);
     }
 
-    /**
-     * Update special instructions for an existing order.
-     *
-     * POST /api/customer/orders/update-instructions
-     * Auth: Bearer Token (Sanctum)
-     */
-  public function updateInstructions(Request $request)
-{
-    $request->validate([
-        'order_id' => 'required|string|exists:orders,order_id',
-        'instruction' => 'nullable|string|max:500',
-    ]);
+    // ----------------------------------------------------
+    // UPDATE SPECIAL INSTRUCTIONS
+    // ----------------------------------------------------
+    public function updateInstructions(Request $request)
+    {
+        $request->validate([
+            'order_id' => 'required|string|exists:orders,order_id',
+            'instruction' => 'nullable|string|max:500',
+        ]);
 
-    $user = $request->user();
+        $user = $request->user();
 
-    $order = Order::where('order_id', $request->order_id)
-                  ->where('customer_id', $user->id)
-                  ->lockForUpdate()
-                  ->first();
+        $order = Order::where('order_id', $request->order_id)
+                      ->where('customer_id', $user->id)
+                      ->lockForUpdate()
+                      ->first();
 
-    if (!$order) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Order not found',
-            'code' => 'ORDER_NOT_FOUND'
-        ], 404);
-    }
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found',
+                'code' => 'ORDER_NOT_FOUND'
+            ], 404);
+        }
 
-    $terminalStates = ['picked_up', 'delivered', 'cancelled'];
-    if (in_array($order->status, $terminalStates)) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Cannot update instructions at this stage',
-            'code' => 'INVALID_ORDER_STATE'
-        ], 400);
-    }
+        $terminalStates = ['picked_up', 'delivered', 'cancelled'];
+        if (in_array($order->status, $terminalStates)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot update instructions at this stage',
+                'code' => 'INVALID_ORDER_STATE'
+            ], 400);
+        }
 
-    $order->special_instructions = $request->instruction;
-    $order->date_modified = now();
-
-    // Persist changes
-    $order->save();
-
-    return response()->json([
-        'success' => true,
-        'message' => 'Special instructions updated successfully',
-        'code' => 'ORDER_INSTRUCTIONS_UPDATED',
-        'data' => [
-            'order_id' => $order->order_id,
-            'instruction' => $order->special_instructions
-        ]
-    ]);
-}
-
-public function paymentBreakdown(Request $request)
-{
-    // Validate input
-    $request->validate([
-        'order_id' => 'required|string|exists:orders,order_id',
-    ]);
-
-    $user = $request->user();
-
-    // Optional role check
-    if ($user->role !== 'customer') {
-        return response()->json([
-            'success' => false,
-            'code' => 'FORBIDDEN'
-        ], 403);
-    }
-
-    // Fetch order
-    $order = Order::where('order_id', $request->order_id)
-                  ->where('customer_id', $user->id)
-                  ->with('customer')
-                  ->first();
-
-    if (!$order) {
-        return response()->json([
-            'success' => false,
-            'code' => 'ORDER_NOT_FOUND'
-        ], 404);
-    }
-
-    try {
-        // Delegate logic to service
-        $breakdown = $this->orderService->getPaymentBreakdown($order);
+        $order->special_instructions = $request->instruction;
+        $order->date_modified = now();
+        $order->save();
 
         return response()->json([
             'success' => true,
-            'message' => 'Payment breakdown fetched successfully',
-            'data' => $breakdown
+            'message' => 'Special instructions updated successfully',
+            'code' => 'ORDER_INSTRUCTIONS_UPDATED',
+            'data' => [
+                'order_id' => $order->order_id,
+                'instruction' => $order->special_instructions
+            ]
+        ]);
+    }
+
+    // ----------------------------------------------------
+    // PAYMENT BREAKDOWN
+    // ----------------------------------------------------
+    public function paymentBreakdown(Request $request)
+    {
+        $request->validate([
+            'order_id' => 'required|string|exists:orders,order_id',
         ]);
 
-    } catch (\Exception $e) {
+        $user = $request->user();
+
+        if ($user->role !== 'customer') {
+            return response()->json([
+                'success' => false,
+                'code' => 'FORBIDDEN'
+            ], 403);
+        }
+
+        $order = Order::where('order_id', $request->order_id)
+                      ->where('customer_id', $user->id)
+                      ->with('customer')
+                      ->first();
+
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'code' => 'ORDER_NOT_FOUND'
+            ], 404);
+        }
+
+        try {
+            $breakdown = $this->orderService->getPaymentBreakdown($order);
+            return response()->json([
+                'success' => true,
+                'message' => 'Payment breakdown fetched successfully',
+                'data' => $breakdown
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'code' => 'SERVER_ERROR'
+            ], 500);
+        }
+    }
+
+    // ----------------------------------------------------
+    // STREAK UPDATE (INTERNAL ENDPOINT)
+    // ----------------------------------------------------
+    public function streakUpdate(Request $request, UpdateDailyStreak $action)
+    {
+        $validated = $request->validate([
+            'customer_id' => 'required|exists:users,id',
+            'order_id'    => 'required|exists:orders,order_id',  // uses UUID column
+        ]);
+
+        try {
+            $result = $action->execute(
+                (int) $validated['customer_id'],
+                $validated['order_id']  // UUID string
+            );
+
+            return response()->json([
+                'success' => true,
+                'code' => 'STREAK_UPDATED',
+                'data' => $result
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'code' => 'STREAK_UPDATE_FAILED',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // ----------------------------------------------------
+// APPLY PROMO CODE
+// ----------------------------------------------------
+public function applyPromo(Request $request, PromoService $promoService)
+{
+    $request->validate([
+        'promo_code' => 'required|string|max:50',
+        'order_id'   => 'required|string|exists:orders,order_id',
+    ]);
+
+    $user = $request->user();
+    $order = Order::where('order_id', $request->order_id)
+                  ->where('customer_id', $user->id)
+                  ->first();
+
+    if (!$order) {
         return response()->json([
             'success' => false,
-            'code' => 'SERVER_ERROR'
-        ], 500);
+            'code'    => 'ORDER_NOT_FOUND',
+        ], 404);
+    }
+
+    // Optional: prevent applying promo to already completed orders
+    if (in_array($order->status, ['delivered', 'cancelled'])) {
+        return response()->json([
+            'success' => false,
+            'code'    => 'INVALID_ORDER_STATE',
+        ], 400);
+    }
+
+    try {
+        $result = $promoService->applyPromo($order, $request->promo_code);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Promo applied successfully',
+            'data'    => $result,
+        ]);
+    } catch (\Exception $e) {
+        $code = match ($e->getMessage()) {
+            'PROMO_NOT_FOUND'     => 404,
+            'PROMO_ALREADY_USED'  => 400,
+            'PROMO_UNAVAILABLE'   => 429,
+            default               => 500,
+        };
+        return response()->json([
+            'success' => false,
+            'code'    => $e->getMessage(),
+        ], $code);
     }
 }
-
-
-
-
 }
