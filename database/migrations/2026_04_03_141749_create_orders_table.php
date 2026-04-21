@@ -24,6 +24,12 @@ return new class extends Migration
             $table->decimal('pickup_longitude', 10, 7);
             $table->string('pickup_city');
 
+           // Order Status Step Tracking (ADD HERE)
+            $table->enum('step', ['pickup', 'dropoff', 'item', 'review'])->nullable();
+           
+            // // Flexible metadata storage
+            $table->json('meta')->nullable();
+
             // Dropoff Information
             $table->string('dropoff_address');
             $table->decimal('dropoff_latitude', 10, 7);
@@ -63,6 +69,7 @@ return new class extends Migration
 
             // Promo & Discounts
              $table->decimal('discount_amount', 10, 2)->default(0);
+             $table->timestamp('delivered_at')->nullable();
 
             // Pricing & Surge (added for order type updates)
             $table->timestamp('date_modified')->nullable();
@@ -72,8 +79,9 @@ return new class extends Migration
             // $table->decimal('total_amount', 10, 2)->nullable();
 
             // Order Status
-            $table->enum('status', ['pending', 'assigned', 'picked_up', 'delivered', 'cancelled'])
+            $table->enum('status', ['draft', 'pending', 'assigned', 'picked_up', 'delivered', 'cancelled'])
                   ->default('pending');
+            $table->boolean('is_draft')->default(false);
 
             // Cancellation fields
             $table->timestamp('cancelled_at')->nullable();

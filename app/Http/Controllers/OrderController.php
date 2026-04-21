@@ -9,6 +9,7 @@ use App\Http\Requests\UpdateOrderTypeRequest;
 use App\Models\CustomerSurCharge;
 use App\Services\PromoService;
 use App\Actions\Streak\UpdateDailyStreak;
+use App\Services\ReferralService;
 use App\Models\OrderType;
 use App\Services\OrderService;
 use Illuminate\Http\Request;
@@ -602,5 +603,44 @@ public function applyPromo(Request $request, PromoService $promoService)
             'code'    => $e->getMessage(),
         ], $code);
     }
+}
+
+// ----------------------------------------------------
+// MARK ORDER AS DELIVERED (AND PROCESS REFERRAL REWARD)
+// ----------------------------------------------------
+
+
+public function markAsDelivered(Request $request, ReferralService $referralService)
+{
+    $request->validate([
+        'order_id' => 'required|string|exists:orders,order_id',
+    ]);
+
+    $order = Order::where('order_id', $request->order_id)
+                  ->where('customer_id', auth()->id())
+                  ->first();
+
+    if (!$order) {
+        return response()->json(['success' => false, 'message' => 'Order not found'], 404);
+    }
+
+    // Only allow if current status is 'picked_up' or 'out_for_delivery' etc.
+    if (!in_array($order->status, ['picked_up', 'out_for_delivery'])) {
+        return response()->json(['success' => false, 'message' => 'Cannot deliver this order'], 400);
+    }
+
+    DB::transaction(function () use ($order) {
+        $order->status = 'delivered';
+        $order->delivered_at = now();
+        $order->save();
+
+        // Process referral reward if applicable
+        app(ReferralService::class)->processFirstDeliveryReward($order);
+    });
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Order marked as delivered and referral processed',
+    ]);
 }
 }

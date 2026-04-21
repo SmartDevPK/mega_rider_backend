@@ -4,12 +4,15 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Carbon\Carbon;
 
 class Order extends Model
 {
     protected $table = 'orders';
 
     protected $fillable = [
+        'step',     
+        'meta',     
         'order_id',
         'customer_id',
         'rider_id',
@@ -51,6 +54,8 @@ class Order extends Model
         'insurance_flag'    => 'boolean',
         'cancelled_at'      => 'datetime',
         'status'            => 'string',
+        'step'              => 'string',
+        'meta'              => 'array',
     ];
 
     protected $dates = [
@@ -104,5 +109,14 @@ class Order extends Model
     public function orderType()
 {
     return $this->belongsTo(OrderType::class, 'order_type_id'); // Assuming you have order_type_id column
+}
+
+public function isExpired(): bool
+{
+    if (!$this->created_at) {
+        return false;
+    }
+
+    return $this->created_at->addHours(24)->isPast();
 }
 }
