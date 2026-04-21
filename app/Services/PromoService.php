@@ -7,36 +7,41 @@ use App\Models\PromoCampaign;
 use App\Models\PromoUsage;
 use App\Exceptions\PromoException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class PromoService
 {
     /**
-     * Apply a promo code to an order.
-     *
-     * @throws PromoException
+     * Apply promo to an order
      */
     public function applyPromo(Order $order, string $code): array
     {
         $campaign = $this->getValidCampaign($code);
 
-        if (! $campaign) {
+        if (!$campaign) {
             throw new PromoException('PROMO_NOT_FOUND', 404);
         }
 
-        // Prevent duplicate usage
         if ($this->isPromoAlreadyUsed($order, $campaign)) {
             throw new PromoException('PROMO_ALREADY_USED', 400);
         }
 
-        $deliveryFee = $order->delivery_fee ?? 0;
-        $discount = ($deliveryFee * $campaign->percentage) / 100;
+        // -----------------------------
+        // FIX: Use correct base amount
+        // -----------------------------
+        $baseAmount = $this->getBaseAmount($order);
+
+        if ($baseAmount <= 0) {
+            throw new PromoException('ORDER_NOT_PRICED_YET', 422);
+        }
+
+        $discount = $this->calculateDiscount($baseAmount, $campaign->percentage);
 
         if ($discount <= 0) {
             throw new PromoException('INVALID_DISCOUNT', 422);
         }
 
-        DB::transaction(function () use ($campaign, $order, $discount) {
+        return DB::transaction(function () use ($order, $campaign, $discount) {
+
             $campaign = PromoCampaign::where('id', $campaign->id)
                 ->lockForUpdate()
                 ->firstOrFail();
@@ -45,11 +50,13 @@ class PromoService
                 throw new PromoException('PROMO_UNAVAILABLE', 429);
             }
 
-            // Deduct balance
+            // Deduct promo balance
             $campaign->decrement('balance', $discount);
 
-            // Apply discount to order
-            $order->update(['discount_amount' => $discount]);
+            // Update order
+            $order->update([
+                'discount_amount' => $discount,
+            ]);
 
             // Record usage
             PromoUsage::create([
@@ -57,13 +64,13 @@ class PromoService
                 'promo_campaign_id' => $campaign->id,
                 'discount_amount' => $discount,
             ]);
-        });
 
-        return $this->recalculateOrderTotals($order);
+            return $this->recalculateOrderTotals($order->fresh());
+        });
     }
 
     /**
-     * Get a valid, active promo campaign.
+     * Get valid promo campaign
      */
     private function getValidCampaign(string $code): ?PromoCampaign
     {
@@ -75,7 +82,7 @@ class PromoService
     }
 
     /**
-     * Check if a promo has already been used for this order.
+     * Prevent duplicate usage
      */
     private function isPromoAlreadyUsed(Order $order, PromoCampaign $campaign): bool
     {
@@ -85,18 +92,43 @@ class PromoService
     }
 
     /**
-     * Recalculate totals after discount is applied.
+     * Decide what amount promo applies to
+     */
+    private function getBaseAmount(Order $order): float
+    {
+        return (float) (
+            $order->delivery_fee
+            ?? $order->price
+            ?? $order->total_amount
+            ?? 0
+        );
+    }
+
+    /**
+     * Calculate discount safely
+     */
+    private function calculateDiscount(float $amount, float $percentage): float
+    {
+        return round(($amount * $percentage) / 100, 2);
+    }
+
+    /**
+     * Recalculate order totals
      */
     private function recalculateOrderTotals(Order $order): array
     {
-        $deliveryFee = max(0, ($order->delivery_fee ?? 0) - ($order->discount_amount ?? 0));
+        $base = $this->getBaseAmount($order);
+        $discount = $order->discount_amount ?? 0;
+
+        $deliveryFee = max(0, $base - $discount);
         $surgeFee = $order->surge_fee ?? 0;
         $insurance = $order->insurance_fee ?? 0;
         $processorFee = 50;
 
         return [
+            'base_amount' => round($base, 2),
             'delivery_fee' => round($deliveryFee, 2),
-            'discount' => round($order->discount_amount ?? 0, 2),
+            'discount' => round($discount, 2),
             'surge_fee' => round($surgeFee, 2),
             'insurance_fee' => round($insurance, 2),
             'payment_processor_fee' => $processorFee,

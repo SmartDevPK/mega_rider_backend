@@ -10,17 +10,27 @@ class PromoCampaign extends Model
     use HasFactory;
 
     protected $fillable = [
-        'code', 'description', 'percentage', 'balance',
-        'starts_at', 'ends_at', 'is_active'
+        'code',
+        'is_active',
+        'percentage',
+        'balance',
+        'starts_at',
+        'ends_at',
     ];
 
     protected $casts = [
-        'starts_at' => 'datetime',
-        'ends_at' => 'datetime',
         'is_active' => 'boolean',
         'percentage' => 'decimal:2',
         'balance' => 'decimal:2',
+        'starts_at' => 'datetime',
+        'ends_at' => 'datetime',
     ];
+
+    /*
+    |-------------------------
+    | Relationships
+    |-------------------------
+    */
 
     public function usages()
     {
