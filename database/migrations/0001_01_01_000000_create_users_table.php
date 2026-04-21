@@ -48,6 +48,15 @@ return new class extends Migration
             $table->string('role')->default('customer');
             $table->boolean('is_available')->default(true)->comment("Driver availability status");
             
+            // ----------------------------------------
+            // Referral System Fields
+            // ----------------------------------------
+            $table->string('referral_code')->nullable()->unique()->after('id');
+            $table->string('referred_by')->nullable()->index()->after('referral_code');
+            $table->boolean('referral_rewarded')->default(false)->after('referred_by');
+            $table->decimal('wallet_balance', 10, 2)->default(0)->after('referral_rewarded');
+            $table->integer('point_balance')->default(0)->after('wallet_balance');
+                    
             // Define the foreign key column FIRST, then add the constraint
             $table->unsignedBigInteger('zone_id')->nullable()->comment('Zone ID reference');
             $table->foreign('zone_id')->references('id')->on('zones')->onDelete('set null');
