@@ -8,6 +8,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str; 
 
 class User extends Authenticatable
 {
@@ -24,7 +25,6 @@ class User extends Authenticatable
         'lastname',
         'phoneNumber',
         'email',
-        'referralCode',
         'address',
         'latitude',
         'longitude',
@@ -32,6 +32,11 @@ class User extends Authenticatable
         'notifications',
         'zone_id',
         'role',
+        'referral_code',
+        'referred_by',
+        'referral_rewarded',
+        'wallet_balance',
+        'point_balance',
         
         // Driver Specific Fields
         'is_available',
@@ -91,6 +96,12 @@ class User extends Authenticatable
         'last_login_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+       
+        // Decimal casts        'latitude' => 'decimal:7',
+        'longitude' => 'decimal:7',
+        'wallet_balance' => 'decimal:2',
+        'point_balance' => 'integer',
+        'referral_rewarded' => 'boolean',
         
         // Boolean casts
         'is_verified' => 'boolean',
@@ -119,6 +130,9 @@ class User extends Authenticatable
         'is_available' => true,
         'total_trips' => 0,
         'rating' => null,
+        'wallet_balance' => 0,
+        'point_balance' => 0,
+        'referral_rewarded' => false,
     ];
 
     /**
@@ -396,5 +410,32 @@ class User extends Authenticatable
     public function isOnTrip(): bool
     {
         return $this->trips()->whereIn('status', ['assigned', 'in_progress'])->exists();
+    }
+
+       /**
+     * The "booted" method of the model.
+     * Generates a unique referral code when creating a new user.
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($user) {
+            $user->referral_code = self::generateReferralCode();
+        });
+    }
+
+    /**zone_id
+     * Generate a unique referral code.
+     *
+     * @return string
+     */
+    private static function generateReferralCode(): string
+    {
+        do {
+            $code = strtoupper(Str::random(8));
+        } while (self::where('referral_code', $code)->exists());
+
+        return $code;
     }
 }

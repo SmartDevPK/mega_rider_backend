@@ -84,7 +84,7 @@ class UserService
             'lastname' => $data['lastname'],
             'phoneNumber' => $data['phoneNumber'],
             'email' => $data['email'],
-            'referralCode' => $data['referralCode'] ?? $this->generateReferralCode(),
+            'referral_code' => $data['referral_code'] ?? $this->generateReferralCode(),
             'password' => Hash::make($data['password']),
             'email_verification_code' => $this->generateVerificationCode(),
             'email_verification_sent_at' => now(),
