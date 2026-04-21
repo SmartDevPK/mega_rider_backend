@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
+
 use App\Http\Controllers\{
     AuthController,
     UserController,
@@ -14,18 +15,38 @@ use App\Http\Controllers\{
     UserReportController,
     PromotionController,
     WalletController,
+    ReferralController,
+    DraftController,
 };
 
 /*
 |--------------------------------------------------------------------------
-| Public / No Auth Routes
+| PUBLIC ROUTES
 |--------------------------------------------------------------------------
 */
 
-// 🔹 Debug
+// Health check
+Route::get('/health', fn() => response()->json([
+    'status' => 'healthy',
+    'timestamp' => now()->toISOString(),
+    'version' => '1.0.0',
+]));
+
+// Debug
 Route::get('/debug', fn() => response()->json(['ok' => true]));
 
-//  Authentication
+// Referral public
+Route::get('/referral/{code}', [UserController::class, 'getByReferralCode'])
+    ->middleware('throttle:30,1');
+
+// Promotions
+Route::get('/promotions/live', [PromotionController::class, 'live']);
+
+/*
+|--------------------------------------------------------------------------
+| AUTH (PUBLIC)
+|--------------------------------------------------------------------------
+*/
 Route::prefix('auth')->group(function () {
     Route::post('/check-email', [AuthController::class, 'checkEmail'])->middleware('throttle:10,1');
     Route::post('/check-phone', [AuthController::class, 'checkPhone'])->middleware('throttle:10,1');
@@ -33,121 +54,155 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:10,5');
     Route::post('/resend-verification', [AuthController::class, 'resendVerification'])->middleware('throttle:3,30');
-    
 });
 
-//  Password Reset
+/*
+|--------------------------------------------------------------------------
+| PASSWORD RESET (PUBLIC)
+|--------------------------------------------------------------------------
+*/
 Route::prefix('password')->group(function () {
     Route::post('/request-reset', [PasswordResetController::class, 'sendResetCode'])->middleware('throttle:3,60');
     Route::post('/verify-code', [PasswordResetController::class, 'verifyResetCode'])->middleware('throttle:5,30');
     Route::post('/reset', [PasswordResetController::class, 'resetPassword'])->middleware('throttle:5,30');
 });
 
-// Referral
-Route::get('/referral/{code}', [UserController::class, 'getByReferralCode'])->middleware('throttle:30,1');
-Route::get('/promotions/live', [PromotionController::class, 'live']);
-
-// 🩺 Health Check
-Route::get('/health', fn() => response()->json([
-    'status'    => 'healthy',
-    'timestamp' => now()->toISOString(),
-    'version'   => '1.0.0',
-]));
-
-// Wallet balance (requires auth but placed here for visibility)
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/wallet/balance', [WalletController::class, 'balance']);
-    Route::get('/wallet/transactions', [WalletController::class, 'transactions']);
-});
-
-
 /*
 |--------------------------------------------------------------------------
-| Authenticated Routes (auth:sanctum)
+| AUTHENTICATED ROUTES (SANCTUM)
 |--------------------------------------------------------------------------
 */
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware('auth:sanctum')->group(function () {
 
-    // 🔹 Current authenticated user
+    /*
+    |-------------------------
+    | USER
+    |-------------------------
+    */
     Route::get('/user', fn(Request $request) => $request->user());
 
-    // Auth management
+    /*
+    |-------------------------
+    | AUTH
+    |-------------------------
+    */
     Route::prefix('auth')->group(function () {
-        Route::get('/user-info', [AuthController::class, 'getUserInfo']);
         Route::get('/me', [AuthController::class, 'me']);
+        Route::get('/user-info', [AuthController::class, 'getUserInfo']);
         Route::post('/refresh', [AuthController::class, 'refresh']);
         Route::post('/logout', [AuthController::class, 'logout']);
     });
 
-    //  Profile management
+    /*
+    |-------------------------
+    | PROFILE
+    |-------------------------
+    */
     Route::prefix('profile')->group(function () {
         Route::get('/', [UserController::class, 'profile']);
         Route::put('/', [UserController::class, 'update']);
         Route::delete('/', [UserController::class, 'destroy']);
+
         Route::patch('/address', [ProfileController::class, 'updateAddress']);
         Route::patch('/picture', [ProfileController::class, 'updateProfilePicture']);
         Route::patch('/password', [ProfileController::class, 'updatePassword']);
         Route::patch('/2fa', [ProfileController::class, 'update2FA']);
         Route::patch('/notifications', [ProfileController::class, 'updateNotifications']);
-        Route::delete('/delete', [ProfileController::class, 'deleteAccount']);
     });
-    //  Orders
-       // New group for customer endpoints
-   Route::prefix('customer')->group(function () {
-    // Order listing & details
-    Route::get('/summary', [OrderController::class, 'summary']);
-    Route::get('/order-types', [OrderController::class, 'getOrderTypes']);
-    Route::get('/payment-breakdown', [OrderController::class, 'paymentBreakdown']);
 
-    // Order modifications
-    Route::post('/live-packages', [OrderController::class, 'livePackages']);
-    Route::post('/update-order-type', [OrderController::class, 'updateOrderType']);
-    Route::post('/update-instructions', [OrderController::class, 'updateInstructions']);
-});
+    /*
+    |-------------------------
+    | CUSTOMER
+    |-------------------------
+    */
+    Route::prefix('customer')->group(function () {
 
-    // Orders
-   Route::prefix('orders')->group(function () {
-    Route::post('/', [OrderController::class, 'store'])->middleware('throttle:20,5');
-    Route::get('/', [OrderController::class, 'index']);
+        Route::get('/summary', [OrderController::class, 'summary']);
+        Route::get('/order-types', [OrderController::class, 'getOrderTypes']);
+        Route::get('/payment-breakdown', [OrderController::class, 'paymentBreakdown']);
 
-    
-    // SPECIFIC routes must come BEFORE parameterised ones
-    Route::get('/activities', [OrderController::class, 'activities']);
-    
-    //  Parameterised route must be LAST
-    Route::get('/{order_id}', [OrderController::class, 'show']);
-    Route::put('/{order_id}', [OrderController::class, 'update']);
-    Route::patch('/{order_id}', [OrderController::class, 'update']);
-    Route::post('/cancel', [OrderCancellationController::class, 'cancel']);
-    
-    // Streak update (internal/system-triggered, not user-facing)
-    // Route::post('/delivered/streak-update', [OrderController::class, 'streakUpdate']);
-});
+        Route::post('/live-packages', [OrderController::class, 'livePackages']);
+        Route::post('/update-order-type', [OrderController::class, 'updateOrderType']);
+        Route::post('/update-instructions', [OrderController::class, 'updateInstructions']);
 
-Route::post('/orders/delivered/streak-update', [OrderController::class, 'streakUpdate'])
-    ->middleware('auth:sanctum')
-    ->name('streak.update');
+        /*
+        |-------------------------
+        | DRAFTS (FIXED)
+        |-------------------------
+        */
+        Route::prefix('drafts')->group(function () {
+            Route::get('/', [DraftController::class, 'index']);
+            Route::post('/auto-save', [DraftController::class, 'autoSave']);
+            Route::get('/{order_id}', [DraftController::class, 'show']);
+            Route::post('/{order_id}/submit', [DraftController::class, 'submit']);
+            Route::delete('/{order_id}', [DraftController::class, 'destroy']);
+        });
+    });
 
-    Route::post('/orders/apply-promo', [OrderController::class, 'applyPromo'])
-    ->middleware('auth:sanctum');
+    /*
+    |-------------------------
+    | ORDERS
+    |-------------------------
+    */
+    Route::prefix('orders')->group(function () {
 
+        Route::post('/', [OrderController::class, 'store'])->middleware('throttle:20,5');
+        Route::get('/', [OrderController::class, 'index']);
+        Route::get('/activities', [OrderController::class, 'activities']);
 
+        Route::post('/cancel', [OrderCancellationController::class, 'cancel']);
+        Route::post('/apply-promo', [OrderController::class, 'applyPromo'])->middleware('throttle:10,1');
 
+        Route::post('/deliver', [OrderController::class, 'markAsDelivered']);
+        Route::post('/streak-update', [OrderController::class, 'streakUpdate']);
 
-    //  Reviews
+        Route::get('/{order_id}', [OrderController::class, 'show']);
+        Route::put('/{order_id}', [OrderController::class, 'update']);
+        Route::patch('/{order_id}', [OrderController::class, 'update']);
+    });
+
+    /*
+    |-------------------------
+    | REFERRALS
+    |-------------------------
+    */
+    Route::get('/referrals/leaderboard', [ReferralController::class, 'leaderboard']);
+
+    /*
+    |-------------------------
+    | WALLET
+    |-------------------------
+    */
+    Route::prefix('wallet')->group(function () {
+        Route::get('/balance', [WalletController::class, 'balance']);
+        Route::get('/transactions', [WalletController::class, 'transactions']);
+    });
+
+    /*
+    |-------------------------
+    | REVIEWS
+    |-------------------------
+    */
     Route::prefix('reviews')->group(function () {
         Route::post('/', [ReviewController::class, 'store']);
     });
 
-    //  Reasons (Report & Cancellation)
+    /*
+    |-------------------------
+    | REASONS
+    |-------------------------
+    */
     Route::prefix('reasons')->group(function () {
         Route::get('/report', [ReasonController::class, 'reportReasons']);
         Route::get('/cancellation', [ReasonController::class, 'cancellationReasons']);
     });
 
-    //  User Reporting
+    /*
+    |-------------------------
+    | REPORTS
+    |-------------------------
+    */
     Route::prefix('reports')->group(function () {
-        Route::post('/user', [UserReportController::class, 'store']); 
+        Route::post('/user', [UserReportController::class, 'store']);
     });
-
 });
