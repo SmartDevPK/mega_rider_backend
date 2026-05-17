@@ -3,6 +3,11 @@
 use Illuminate\Support\Facades\Route;
 use Illuminate\Http\Request;
 
+/*
+|--------------------------------------------------------------------------
+| CONTROLLERS
+|--------------------------------------------------------------------------
+*/
 use App\Http\Controllers\{
     AuthController,
     UserController,
@@ -19,73 +24,73 @@ use App\Http\Controllers\{
     DraftController,
 };
 
+use App\Http\Controllers\Rider\{
+    RiderController,
+    RiderAuthController,
+    CheckRiderController,
+    RiderVerificationController
+};
+
+use App\Http\Controllers\Admin\{
+    AdminAuthController,
+    RiderApprovalController,
+};
+
 /*
 |--------------------------------------------------------------------------
-| PUBLIC ROUTES
+| HEALTH & DEBUG
 |--------------------------------------------------------------------------
 */
-
-// Health check
-Route::get('/health', fn() => response()->json([
+Route::get('/health', fn () => response()->json([
     'status' => 'healthy',
     'timestamp' => now()->toISOString(),
     'version' => '1.0.0',
 ]));
 
-// Debug
-Route::get('/debug', fn() => response()->json(['ok' => true]));
+Route::get('/debug', fn () => response()->json(['ok' => true]));
 
-// Referral public
+/*
+|--------------------------------------------------------------------------
+| PUBLIC ROUTES
+|--------------------------------------------------------------------------
+*/
 Route::get('/referral/{code}', [UserController::class, 'getByReferralCode'])
     ->middleware('throttle:30,1');
 
-// Promotions
 Route::get('/promotions/live', [PromotionController::class, 'live']);
 
 /*
 |--------------------------------------------------------------------------
-| AUTH (PUBLIC)
+| AUTH ROUTES
 |--------------------------------------------------------------------------
 */
 Route::prefix('auth')->group(function () {
-    Route::post('/check-email', [AuthController::class, 'checkEmail'])->middleware('throttle:10,1');
-    Route::post('/check-phone', [AuthController::class, 'checkPhone'])->middleware('throttle:10,1');
-    Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:5,10');
-    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
-    Route::post('/verify-email', [AuthController::class, 'verifyEmail'])->middleware('throttle:10,5');
-    Route::post('/resend-verification', [AuthController::class, 'resendVerification'])->middleware('throttle:3,30');
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/check-email', [AuthController::class, 'checkEmail']);
+    Route::post('/check-phone', [AuthController::class, 'checkPhone']);
 });
 
 /*
 |--------------------------------------------------------------------------
-| PASSWORD RESET (PUBLIC)
+| PASSWORD RESET
 |--------------------------------------------------------------------------
 */
 Route::prefix('password')->group(function () {
-    Route::post('/request-reset', [PasswordResetController::class, 'sendResetCode'])->middleware('throttle:3,60');
-    Route::post('/verify-code', [PasswordResetController::class, 'verifyResetCode'])->middleware('throttle:5,30');
-    Route::post('/reset', [PasswordResetController::class, 'resetPassword'])->middleware('throttle:5,30');
+    Route::post('/request-reset', [PasswordResetController::class, 'sendResetCode']);
+    Route::post('/verify-code', [PasswordResetController::class, 'verifyResetCode']);
+    Route::post('/reset', [PasswordResetController::class, 'resetPassword']);
 });
 
 /*
 |--------------------------------------------------------------------------
-| AUTHENTICATED ROUTES (SANCTUM)
+| AUTHENTICATED USER ROUTES
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function () {
 
-    /*
-    |-------------------------
-    | USER
-    |-------------------------
-    */
-    Route::get('/user', fn(Request $request) => $request->user());
+    Route::get('/user', fn (Request $request) => $request->user());
 
-    /*
-    |-------------------------
-    | AUTH
-    |-------------------------
-    */
     Route::prefix('auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::get('/user-info', [AuthController::class, 'getUserInfo']);
@@ -93,116 +98,153 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
     });
 
-    /*
-    |-------------------------
-    | PROFILE
-    |-------------------------
-    */
     Route::prefix('profile')->group(function () {
         Route::get('/', [UserController::class, 'profile']);
         Route::put('/', [UserController::class, 'update']);
         Route::delete('/', [UserController::class, 'destroy']);
-
-        Route::patch('/address', [ProfileController::class, 'updateAddress']);
-        Route::patch('/picture', [ProfileController::class, 'updateProfilePicture']);
-        Route::patch('/password', [ProfileController::class, 'updatePassword']);
-        Route::patch('/2fa', [ProfileController::class, 'update2FA']);
-        Route::patch('/notifications', [ProfileController::class, 'updateNotifications']);
     });
 
-    /*
-    |-------------------------
-    | CUSTOMER
-    |-------------------------
-    */
-    Route::prefix('customer')->group(function () {
-
-        Route::get('/summary', [OrderController::class, 'summary']);
-        Route::get('/order-types', [OrderController::class, 'getOrderTypes']);
-        Route::get('/payment-breakdown', [OrderController::class, 'paymentBreakdown']);
-
-        Route::post('/live-packages', [OrderController::class, 'livePackages']);
-        Route::post('/update-order-type', [OrderController::class, 'updateOrderType']);
-        Route::post('/update-instructions', [OrderController::class, 'updateInstructions']);
-
-        /*
-        |-------------------------
-        | DRAFTS (FIXED)
-        |-------------------------
-        */
-        Route::prefix('drafts')->group(function () {
-            Route::get('/', [DraftController::class, 'index']);
-            Route::post('/auto-save', [DraftController::class, 'autoSave']);
-            Route::get('/{order_id}', [DraftController::class, 'show']);
-            Route::post('/{order_id}/submit', [DraftController::class, 'submit']);
-            Route::delete('/{order_id}', [DraftController::class, 'destroy']);
-        });
-    });
-
-    /*
-    |-------------------------
-    | ORDERS
-    |-------------------------
-    */
     Route::prefix('orders')->group(function () {
-
-        Route::post('/', [OrderController::class, 'store'])->middleware('throttle:20,5');
+        Route::post('/', [OrderController::class, 'store']);
         Route::get('/', [OrderController::class, 'index']);
-        Route::get('/activities', [OrderController::class, 'activities']);
-
-        Route::post('/cancel', [OrderCancellationController::class, 'cancel']);
-        Route::post('/apply-promo', [OrderController::class, 'applyPromo'])->middleware('throttle:10,1');
-
-        Route::post('/deliver', [OrderController::class, 'markAsDelivered']);
-        Route::post('/streak-update', [OrderController::class, 'streakUpdate']);
-
         Route::get('/{order_id}', [OrderController::class, 'show']);
-        Route::put('/{order_id}', [OrderController::class, 'update']);
-        Route::patch('/{order_id}', [OrderController::class, 'update']);
     });
 
-    /*
-    |-------------------------
-    | REFERRALS
-    |-------------------------
-    */
-    Route::get('/referrals/leaderboard', [ReferralController::class, 'leaderboard']);
-
-    /*
-    |-------------------------
-    | WALLET
-    |-------------------------
-    */
     Route::prefix('wallet')->group(function () {
         Route::get('/balance', [WalletController::class, 'balance']);
         Route::get('/transactions', [WalletController::class, 'transactions']);
     });
+});
 
+/*
+|--------------------------------------------------------------------------
+| RIDER ROUTES
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('rider')->group(function () {
+    
     /*
-    |-------------------------
-    | REVIEWS
-    |-------------------------
+    |==========================================================================
+    | PUBLIC ENDPOINTS
+    |==========================================================================
     */
-    Route::prefix('reviews')->group(function () {
-        Route::post('/', [ReviewController::class, 'store']);
+    
+    // Registration Flow
+    Route::prefix('auth')->group(function () {
+        Route::post('/register', [RiderController::class, 'register']);
+        Route::post('/check-status', [RiderController::class, 'checkStatus']);
+        Route::post('/set-password', [RiderController::class, 'setPassword']);
+        Route::post('/login', [RiderAuthController::class, 'login']);
+    });
+    
+    // Password Reset Flow
+    Route::prefix('password')->group(function () {
+        Route::post('/forgot', [RiderAuthController::class, 'forgotPassword']);
+        Route::post('/reset', [RiderAuthController::class, 'resetPassword']);
+        Route::post('/resend-token', [RiderAuthController::class, 'resendResetToken']);
+    });
+    
+    // Email Verification Flow
+    Route::prefix('verification')->group(function () {
+        Route::post('/send', [RiderVerificationController::class, 'sendVerification']);
+        Route::post('/verify', [RiderVerificationController::class, 'verifyOtp']);
+        Route::post('/resend', [RiderVerificationController::class, 'resendOtp']);
     });
 
     /*
-    |-------------------------
-    | REASONS
-    |-------------------------
+    |==========================================================================
+    | PROTECTED ENDPOINTS (Requires Authentication)
+    |==========================================================================
     */
-    Route::prefix('reasons')->group(function () {
-        Route::get('/report', [ReasonController::class, 'reportReasons']);
-        Route::get('/cancellation', [ReasonController::class, 'cancellationReasons']);
-    });
+    
+    Route::middleware('auth:sanctum')->group(function () {
+        
+        // User Information
+        Route::prefix('user')->group(function () {
+            Route::get('/profile', [RiderController::class, 'profile']);
+            Route::put('/profile', [RiderController::class, 'updateProfile']);
+            Route::get('/me', [RiderAuthController::class, 'me']);
+            Route::post('/vehicle/update', [RiderController::class, 'updateVehicleDetails']);
+            Route::post('/name/update', [RiderController::class, 'updateRiderName']);
+            Route::post('/profile-picture/upload', [RiderController::class, 'updateRiderProfilePicture']);
+            Route::post('/driver-license/upload', [RiderController::class, 'updateDriverLicense']);
+            Route::post('/utility-bill/upload', [RiderController::class, 'updateUtilityBill']);
+        });
+        
+        // Guarantor Management
+        Route::prefix('guarantor')->group(function () {
+            Route::get('/', [RiderAuthController::class, 'getGuarantor']);
+            Route::put('/', [RiderAuthController::class, 'updateGuarantor']);
+        });
+        
+        // Next of Kin Management
+        Route::prefix('next-of-kin')->group(function () {
+            Route::get('/', [RiderAuthController::class, 'getNextOfKin']);
+            Route::put('/', [RiderAuthController::class, 'updateNextOfKin']);
+        });
 
-    /*
-    |-------------------------
-    | REPORTS
-    |-------------------------
-    */
-    Route::prefix('reports')->group(function () {
-        Route::post('/user', [UserReportController::class, 'store']);
+        
+        
+        // Combined Operations
+        Route::put('/family-info', [RiderAuthController::class, 'updateGuarantorAndNextOfKin']);
+        
+        // Account Security
+        Route::prefix('account')->group(function () {
+            Route::post('/logout', [RiderAuthController::class, 'logout']);
+            Route::post('/refresh-token', [RiderAuthController::class, 'refreshToken']);
+            Route::post('/change-password', [RiderAuthController::class, 'changePassword']);
+            Route::post('/verify-token', [RiderAuthController::class, 'verifyToken']);
+        });
+        
+        // Rider Dashboard
+        Route::get('/dashboard', [RiderController::class, 'dashboard']);
     });
+});
+/*
+|--------------------------------------------------------------------------
+| ADMIN ROUTES
+|--------------------------------------------------------------------------
+*/
+Route::prefix('admin')->group(function () {
+
+    // Public
+    Route::post('/login', [AdminAuthController::class, 'login']);
+
+    // Protected
+    Route::middleware('auth:sanctum')->group(function () {
+
+        Route::get('/me', [AdminAuthController::class, 'me']);
+        Route::post('/logout', [AdminAuthController::class, 'logout']);
+
+        Route::get('/dashboard', [RiderApprovalController::class, 'dashboard']);
+        Route::get('/statistics', [RiderApprovalController::class, 'statistics']);
+
+        Route::prefix('riders')->group(function () {
+
+            Route::get('/pending', [RiderApprovalController::class, 'pendingRiders']);
+            Route::get('/approved', [RiderApprovalController::class, 'approvedRiders']);
+            Route::get('/rejected', [RiderApprovalController::class, 'rejectedRiders']);
+            Route::get('/export', [RiderApprovalController::class, 'exportPending']);
+
+            Route::get('/{id}', [RiderApprovalController::class, 'showRider']);
+            Route::post('/{id}/approve', [RiderApprovalController::class, 'approve']);
+            Route::post('/{id}/reject', [RiderApprovalController::class, 'reject']);
+            Route::post('/{id}/process', [RiderApprovalController::class, 'processApproval']);
+            Route::post('/bulk-approve', [RiderApprovalController::class, 'bulkApprove']);
+            Route::delete('/{id}', [RiderApprovalController::class, 'deleteRider']);
+        });
+    });
+});
+
+/*
+|--------------------------------------------------------------------------
+| FALLBACK ROUTE
+|--------------------------------------------------------------------------
+*/
+Route::fallback(function () {
+    return response()->json([
+        'success' => false,
+        'message' => 'Route not found',
+    ], 404);
 });
