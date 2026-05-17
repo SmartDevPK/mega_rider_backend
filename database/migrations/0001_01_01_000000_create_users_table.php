@@ -51,11 +51,11 @@ return new class extends Migration
             // ----------------------------------------
             // Referral System Fields
             // ----------------------------------------
-            $table->string('referral_code')->nullable()->unique()->after('id');
-            $table->string('referred_by')->nullable()->index()->after('referral_code');
-            $table->boolean('referral_rewarded')->default(false)->after('referred_by');
-            $table->decimal('wallet_balance', 10, 2)->default(0)->after('referral_rewarded');
-            $table->integer('point_balance')->default(0)->after('wallet_balance');
+            $table->string('referral_code')->nullable()->unique();
+            $table->string('referred_by')->nullable()->index();
+            $table->boolean('referral_rewarded')->default(false);
+            $table->decimal('wallet_balance', 10, 2)->default(0);
+            $table->integer('point_balance')->default(0);
                     
             // Define the foreign key column FIRST, then add the constraint
             $table->unsignedBigInteger('zone_id')->nullable()->comment('Zone ID reference');
