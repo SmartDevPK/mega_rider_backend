@@ -38,6 +38,11 @@ return [
             'driver' => 'array',
             'serialize' => false,
         ],
+         // Add admin guard
+        'admin' => [
+            'driver' => 'sanctum',
+            'provider' => 'admins',
+        ],
 
         'database' => [
             'driver' => 'database',
