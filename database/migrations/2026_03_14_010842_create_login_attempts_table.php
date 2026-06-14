@@ -13,17 +13,26 @@ return new class extends Migration
     {
         Schema::create('login_attempts', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('user_id')->nullable()->constrained()->onDelete('cascade');
-            $table->string('email');
+
+            $table->unsignedBigInteger('user_id')
+                ->nullable()
+                ->constrained()
+                ->onDelete('cascade');
+
+            $table->string('email', 255);
             $table->string('ip_address', 45)->nullable();
             $table->text('user_agent')->nullable();
+
             $table->boolean('success')->default(false);
             $table->boolean('is_lockout')->default(false);
+
             $table->timestamp('attempted_at');
             $table->timestamps();
-            
+
+            // Performance indexes
             $table->index(['email', 'attempted_at']);
             $table->index(['user_id', 'attempted_at']);
+            $table->index('attempted_at');
         });
     }
 

@@ -13,8 +13,8 @@ return new class extends Migration
     {
         Schema::create('promo_usages', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('order_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('promo_campaign_id')->constrained()->cascadeOnDelete();
+            $table->unsignedBigInteger('order_id')->constrained()->cascadeOnDelete();
+            $table->unsignedBigInteger('promo_campaign_id')->constrained()->cascadeOnDelete();
             $table->decimal('discount_amount', 10, 2);
             $table->timestamps();
         });

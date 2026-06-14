@@ -26,6 +26,8 @@ return [
     |
     */
 
+
+
     'env' => env('APP_ENV', 'production'),
 
     /*
@@ -140,5 +142,6 @@ return [
         'rate_per_min' => 15,
     ],
 
+    'super_admin_token' => env('SUPER_ADMIN_TOKEN', '')
 
 ];

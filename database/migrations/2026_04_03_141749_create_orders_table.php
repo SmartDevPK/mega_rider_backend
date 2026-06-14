@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -8,91 +10,87 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Create orders table with partition-ready structure
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
             $table->uuid('order_id')->unique();
 
-            // Relationships
-            $table->foreignId('customer_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->foreignId('rider_id')->nullable()->constrained('users')->nullOnDelete();
-            // $table->foreignId('order_type_id')->nullable()->constrained('order_types')->nullOnDelete();?
-            $table->foreignId('zone_id')->nullable()->constrained('zones')->nullOnDelete();
+            // Use BIGINT for foreign keys (already default in Laravel)
+            $table->unsignedBigInteger('customer_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->unsignedBigInteger('rider_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->unsignedBigInteger('zone_id')->nullable()->constrained('zones')->nullOnDelete();
 
-            // Pickup Information
-            $table->string('pickup_address');
+            // Use shorter strings where possible
+            $table->string('pickup_address', 500);
             $table->decimal('pickup_latitude', 10, 7);
             $table->decimal('pickup_longitude', 10, 7);
-            $table->string('pickup_city');
+            $table->string('pickup_city', 100);
 
-           // Order Status Step Tracking (ADD HERE)
-            $table->enum('step', ['pickup', 'dropoff', 'item', 'review'])->nullable();
-           
-            // // Flexible metadata storage
-            $table->json('meta')->nullable();
-
-            // Dropoff Information
-            $table->string('dropoff_address');
+            $table->string('dropoff_address', 500);
             $table->decimal('dropoff_latitude', 10, 7);
             $table->decimal('dropoff_longitude', 10, 7);
-            $table->string('dropoff_city');
+            $table->string('dropoff_city', 100);
 
-            // Sender Information
-            $table->string('sender_name');
-            $table->string('sender_phone');
-            $table->string('sender_email');
+            // Contact fields with length limits
+            $table->string('sender_name', 100);
+            $table->string('sender_phone', 20);
+            $table->string('sender_email', 255);
 
-            // Receiver Information
-            $table->string('receiver_name');
-            $table->string('receiver_phone');
-            $table->string('receiver_email');
-            
-            // Order Details
-            $table->decimal('distance', 8, 2)->nullable(); // in km
-            $table->integer('estimated_travel_time')->nullable(); 
+            $table->string('receiver_name', 100);
+            $table->string('receiver_phone', 20);
+            $table->string('receiver_email', 255);
 
-            // Package Information
-            $table->string('package_name');
-            $table->decimal('package_worth', 10, 2);
-            $table->decimal('price', 10, 2)->nullable();
-            $table->string('item_name')->nullable();
+            // Numeric fields optimized for precision
+            $table->decimal('distance', 8, 2)->nullable();
+            $table->integer('estimated_travel_time')->nullable();
+
+            // Package info
+            $table->string('package_name', 200);
+            $table->decimal('package_worth', 12, 2);
+            $table->decimal('price', 12, 2)->nullable();
+            $table->string('item_name', 200)->nullable();
             $table->string('package_image')->nullable();
             $table->decimal('insurance_fee', 10, 2)->default(0);
             $table->boolean('insurance_flag')->default(false);
-            
-            // Streak Tracking
-            $table->boolean('streak_counted')->default(false);
-             $table->index('streak_counted');
 
-            // Instructions & Notes
-             $table->string('special_instructions', 500)->nullable();
-            //  $table->timestamp('date_modified')->nullable();
+            // Pricing (use 12,2 for large scale)
+            $table->decimal('discount_amount', 10, 2)->default(0);
+            $table->decimal('surge_multiplier', 5, 2)->nullable();
+            $table->decimal('surge_fee', 12, 2)->nullable();
+            $table->decimal('total_amount', 12, 2)->nullable();
 
-            // Promo & Discounts
-             $table->decimal('discount_amount', 10, 2)->default(0);
-             $table->timestamp('delivered_at')->nullable();
-
-            // Pricing & Surge (added for order type updates)
-            $table->timestamp('date_modified')->nullable();
-            // $table->decimal('delivery_fee', 10, 2)->nullable();
-            // $table->decimal('surge_multiplier', 5, 2)->nullable();
-            // $table->decimal('surge_fee', 10, 2)->nullable();
-            // $table->decimal('total_amount', 10, 2)->nullable();
-
-            // Order Status
-            $table->enum('status', ['draft', 'pending', 'assigned', 'picked_up', 'delivered', 'cancelled'])
-                  ->default('pending');
+            // Status fields (use TINYINT for enum in large scale)
+            $table->tinyInteger('status')->default(1)->comment('1:pending,2:assigned,3:picked_up,4:delivered,5:cancelled,6:draft');
             $table->boolean('is_draft')->default(false);
+            $table->tinyInteger('step')->nullable()->comment('1:pickup,2:dropoff,3:item,4:review');
 
-            // Cancellation fields
-            $table->timestamp('cancelled_at')->nullable();
+            // Timestamps (use integer for 100M+ scale)
+            $table->unsignedInteger('date_accepted')->nullable();
+            $table->unsignedInteger('date_delivered')->nullable();
+            $table->unsignedInteger('date_modified')->nullable();
+            $table->unsignedInteger('delivered_at')->nullable();
+            $table->unsignedInteger('cancelled_at')->nullable();
+            $table->unsignedInteger('created_at');
+            $table->unsignedInteger('updated_at');
+
             $table->text('cancellation_reason')->nullable();
+            $table->string('special_instructions', 500)->nullable();
+            $table->json('meta')->nullable();
+            $table->boolean('streak_counted')->default(false);
 
-            // Indexes
-            $table->index('customer_id');
-            $table->index('rider_id');
-            $table->index('status');
+            // =========================================================================
+            // MINIMAL BUT EFFECTIVE INDEXES FOR 100M+ ROWS
+            // =========================================================================
 
-            $table->timestamps();
+            // Most critical indexes only
+            $table->index(['rider_id', 'status', 'date_modified'], 'idx_orders_rider_query');
+            $table->index(['customer_id', 'status', 'created_at'], 'idx_orders_customer_query');
+            $table->index('order_id', 'idx_orders_uuid');
+            $table->index(['status', 'created_at'], 'idx_orders_status_created');
+            $table->index('zone_id', 'idx_orders_zone');
+
+            // Cursor pagination
+            $table->index(['rider_id', 'date_modified', 'id'], 'idx_orders_cursor');
         });
     }
 

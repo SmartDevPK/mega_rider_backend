@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -11,46 +13,40 @@ return new class extends Migration
      */
     public function up(): void
     {
-      Schema::create('rider_reviews', function (Blueprint $table) {
-    $table->id();
+        Schema::create('rider_reviews', function (Blueprint $table): void {
+            $table->id();
 
-    // Order (UUID reference)
-    $table->uuid('order_id');
-    $table->foreign('order_id')
-          ->references('order_id')
-          ->on('orders')
-          ->cascadeOnDelete();
+            // Order reference (UUID)
+            // $table->uuid('order_id');
+            $table->unsignedBigInteger('order_id')
+                ->references('order_id')
+                ->on('orders')
+                ->cascadeOnDelete();
 
-    // Relationships
-    $table->foreignId('rider_id')
-          ->constrained('users')
-          ->cascadeOnDelete();
+            // Relationships
+            $table->unsignedBigInteger('rider_id')->constrained('riders')->cascadeOnDelete();
+            $table->unsignedBigInteger('customer_id')->constrained('customers')
+                ->cascadeOnDelete();
 
-    $table->foreignId('customer_id')
-          ->constrained('users')
-          ->cascadeOnDelete();
+            // Ratings (1-5)
+            $table->unsignedTinyInteger('performance_rating');
+            $table->unsignedTinyInteger('speed_rating');
+            $table->unsignedTinyInteger('handling_rating');
+            $table->decimal('average_rating', 3, 2);
 
-    // Ratings (1–5)
-    $table->unsignedTinyInteger('performance_rating');
-    $table->unsignedTinyInteger('speed_rating');
-    $table->unsignedTinyInteger('handling_rating');
+            // Review content
+            $table->text('review_content')->nullable();
 
-    // Calculated average
-    $table->decimal('average_rating', 3, 2);
+            $table->timestamps();
 
-    // Review content
-    $table->text('review_content')->nullable();
+            // Constraints
+            $table->unique(['order_id', 'customer_id'], 'idx_rider_reviews_unique');
 
-    // Prevent duplicate reviews
-    $table->unique(['order_id', 'customer_id']);
-
-    // Optional indexes (performance boost)
-    $table->index('rider_id');
-    $table->index('customer_id');
-
-    $table->timestamps();
-});
-
+            // Indexes
+            $table->index('rider_id', 'idx_rider_reviews_rider');
+            $table->index('customer_id', 'idx_rider_reviews_customer');
+            $table->index(['rider_id', 'created_at'], 'idx_rider_reviews_rider_date');
+        });
     }
 
     /**

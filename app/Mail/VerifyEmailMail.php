@@ -2,7 +2,7 @@
 
 namespace App\Mail;
 
-use App\Models\User;
+use App\Models\Customer;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -13,43 +13,31 @@ class VerifyEmailMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public User $user;
+    public Customer $user;
+    public string $code;
 
-    /**
-     * Create a new message instance.
-     */
-    public function __construct(User $user)
+    public function __construct(Customer $user, string $code)
     {
         $this->user = $user;
+        $this->code = $code;
     }
 
-    /**
-     * Get the message envelope.
-     */
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: 'Verify Your Email Address',
+            subject: 'Verify Your Email Address - Mega Rider',
         );
     }
 
-    /**
-     * Get the message content definition.
-     */
     public function content(): Content
     {
         return new Content(
             view: 'emails.verify-email',
+            with: [
+                'name' => $this->user->first_name,
+                'code' => $this->code,
+                'expires_in' => 10,
+            ]
         );
-    }
-
-    /**
-     * Get the attachments for the message.
-     *
-     * @return array<int, \Illuminate\Mail\Mailables\Attachment>
-     */
-    public function attachments(): array
-    {
-        return [];
     }
 }
