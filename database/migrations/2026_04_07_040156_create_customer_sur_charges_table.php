@@ -13,8 +13,8 @@ return new class extends Migration
     {
         Schema::create('customer_sur_charges', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('order_id')->constrained('orders')->onDelete('cascade');
-            $table->foreignId('order_type_id')->constrained('order_types');
+            $table->unsignedBigInteger('order_id')->constrained('orders')->onDelete('cascade');
+            $table->unsignedBigInteger('order_type_id')->constrained('order_types');
             $table->decimal('delivery_fee', 10, 2);
             $table->decimal('surge_multiplier', 5, 2);
             $table->decimal('surge_fee', 10, 2);

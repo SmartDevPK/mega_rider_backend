@@ -12,9 +12,7 @@ return new class extends Migration
             $table->id();
 
             // who gets the reward
-            $table->foreignId('customer_id')
-                ->constrained('users')
-                ->onDelete('cascade');
+            $table->unsignedBigInteger('customer_id')->constrained('users')->onDelete('cascade');
 
             // reward type (streak, referral, bonus, etc.)
             $table->string('type');
@@ -26,7 +24,7 @@ return new class extends Migration
             $table->decimal('amount', 10, 2)->default(0);
 
             // optional related order
-            $table->foreignId('order_id')
+            $table->unsignedBigInteger('order_id')
                 ->nullable()
                 ->constrained('orders')
                 ->nullOnDelete();

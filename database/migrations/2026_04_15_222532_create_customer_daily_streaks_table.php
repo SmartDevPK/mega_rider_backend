@@ -11,9 +11,7 @@ return new class extends Migration
         Schema::create('customer_daily_streaks', function (Blueprint $table) {
             $table->id();
 
-            $table->foreignId('customer_id')
-                ->constrained('users')
-                ->onDelete('cascade');
+            $table->unsignedBigInteger('customer_id')->constrained('users')->onDelete('cascade');
 
             $table->date('date');
 

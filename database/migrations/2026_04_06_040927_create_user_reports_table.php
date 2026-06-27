@@ -1,68 +1,62 @@
 <?php
 
+declare(strict_types=1);
+
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        Schema::create('user_reports', function (Blueprint $table) {
+        Schema::create('user_reports', function (Blueprint $table): void {
             $table->id();
 
-            // ----------------------------------------
-            // Who is reporting
-            // ----------------------------------------
-            $table->foreignId('reporter_id')
-                  ->constrained('users')        // Must exist in users table
-                  ->cascadeOnDelete()           // Delete reports if user is deleted
-                  ->comment('ID of the user who is reporting');
+            // Polymorphic reporter (customer or rider)
+            $table->morphs('reporter');
 
-            // ----------------------------------------
-            // Who is being reported
-            // ----------------------------------------
-            $table->foreignId('reported_id')
-                  ->constrained('users')        // Must exist in users table
-                  ->cascadeOnDelete()           // Delete reports if reported user is deleted
-                  ->comment('ID of the user being reported');
+            // Polymorphic reported (customer or rider)
+            $table->morphs('reported');
 
-            // ----------------------------------------
-            // Reason for reporting (optional)
-            // ----------------------------------------
-            $table->foreignId('reason_id')
-                  ->nullable()                  // Optional
-                  ->constrained('report_reasons')
-                  ->nullOnDelete()              // Set to NULL if reason deleted
-                  ->comment('Reason for reporting (optional)');
+            $table->unsignedBigInteger('reason_id')
+                ->nullable()
+                ->constrained('report_reasons')
+                ->nullOnDelete();
 
-            // ----------------------------------------
-            // Optional comment
-            // ----------------------------------------
-            $table->text('comment')
-                  ->nullable()
-                  ->comment('Optional comment explaining the report');
+            $table->text('comment')->nullable();
+            $table->string('custom_reason', 200)->nullable();
 
-            // ----------------------------------------
-            // Timestamps
-            // ----------------------------------------
+            $table->enum('status', ['pending', 'reviewing', 'resolved', 'dismissed', 'escalated'])
+                ->default('pending');
+
+            $table->enum('priority', ['low', 'medium', 'high', 'urgent'])->default('medium');
+
+            $table->unsignedBigInteger('resolved_by')
+                ->nullable()
+                ->constrained('admins')
+                ->nullOnDelete();
+
+            $table->text('admin_notes')->nullable();
+            $table->enum('action_taken', ['none', 'warning', 'temporary_ban', 'permanent_ban', 'restricted'])
+                ->default('none');
+
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->json('meta')->nullable();
+
             $table->timestamps();
+            $table->timestamp('reviewed_at')->nullable();
+            $table->timestamp('resolved_at')->nullable();
 
-            // ----------------------------------------
-            // Indexes
-            // ----------------------------------------
-            $table->index('reporter_id');
-            $table->index('reported_id');
-            $table->index('reason_id');
+            // Indexes for polymorphic queries
+            $table->index(['reporter_type', 'reporter_id', 'created_at'], 'idx_reports_reporter');
+            $table->index(['reported_type', 'reported_id', 'status'], 'idx_reports_reported_status');
+            $table->index(['status', 'priority', 'created_at'], 'idx_reports_status_priority');
+            $table->index('created_at', 'idx_reports_created');
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('user_reports');

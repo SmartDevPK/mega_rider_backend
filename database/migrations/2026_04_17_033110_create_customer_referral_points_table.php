@@ -11,17 +11,23 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // First, create the table WITHOUT foreign key
         Schema::create('customer_referral_points', function (Blueprint $table) {
-        $table->id();
-        $table->unsignedBigInteger('customer_id');
-        $table->string('month');          // e.g., '2026-04'
-        $table->integer('monthly_points')->default(0);
-        $table->timestamps();
+            $table->id();
+            $table->unsignedBigInteger('customer_id');
+            $table->string('month');          // e.g., '2026-04'
+            $table->integer('monthly_points')->default(0);
+            $table->timestamps();
+            $table->unique(['customer_id', 'month']);
+        });
 
-        $table->foreign('customer_id')->references('id')->on('users')->onDelete('cascade');
-        $table->unique(['customer_id', 'month']);
-    });
-
+        // Then, add ONLY the foreign key constraint (NOT the column again)
+        Schema::table('customer_referral_points', function (Blueprint $table) {
+            $table->foreign('customer_id')
+                  ->references('id')
+                  ->on('customers')
+                  ->onDelete('cascade');
+        });
     }
 
     /**
@@ -29,6 +35,10 @@ return new class extends Migration
      */
     public function down(): void
     {
+        Schema::table('customer_referral_points', function (Blueprint $table) {
+            $table->dropForeign(['customer_id']);
+        });
+
         Schema::dropIfExists('customer_referral_points');
     }
 };
