@@ -278,7 +278,7 @@ jobs:
           path: laravel-build.tar.gz
           retention-days: 7
 
-  # Job 5: Notification
+  # Job 5: Notification (FIXED)
   notify:
     name: Notifications
     runs-on: ubuntu-latest
@@ -290,11 +290,11 @@ jobs:
         id: status
         run: |
           if [ "${{ needs.build.result }}" == "success" ]; then
-            echo "status= Pipeline Succeeded" >> $GITHUB_OUTPUT
-            echo "color=success" >> $GITHUB_OUTPUT
+            echo "status=Pipeline Succeeded" >> $GITHUB_OUTPUT
+            echo "color=3066993" >> $GITHUB_OUTPUT  # Green for success
           else
-            echo "status= Pipeline Failed" >> $GITHUB_OUTPUT
-            echo "color=failure" >> $GITHUB_OUTPUT
+            echo "status=Pipeline Failed" >> $GITHUB_OUTPUT
+            echo "color=15158332" >> $GITHUB_OUTPUT  # Red for failure
           fi
           
       - name: Send Slack notification
