@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - develop
       - dev
   pull_request:
     branches:
@@ -67,7 +66,7 @@ jobs:
         
       - name: Upload Test Reports
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-reports
           path: storage/logs/
