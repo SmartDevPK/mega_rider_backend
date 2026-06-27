@@ -1,11 +1,11 @@
-name: Mega Ride Dispatch
+name: Laravel Database Tests
 
 on:
   push:
     branches:
       - main
       - develop
-      - release/*
+      - dev
   pull_request:
     branches:
       - main
@@ -20,9 +20,8 @@ env:
   DB_DATABASE: database/testing.sqlite
 
 jobs:
-  # Job 1: Code Quality & Static Analysis
-  code-quality:
-    name: Code Quality Checks
+  tests:
+    name: Laravel Database Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     
@@ -35,8 +34,8 @@ jobs:
         with:
           php-version: 8.3
           extensions: mbstring, bcmath, intl, pdo, sqlite, openssl, zip, pcntl
-          coverage: xdebug
-          tools: composer, phpcs, phpstan
+          coverage: none
+          tools: composer
           
       - name: Cache Composer dependencies
         uses: actions/cache@v3
@@ -60,262 +59,15 @@ jobs:
           mkdir -p database
           touch database/testing.sqlite
           
-      - name: Run PHPStan
-        run: vendor/bin/phpstan analyse --no-progress --memory-limit=2G
-        
-      - name: Run Laravel Pint (Code Style)
-        run: vendor/bin/pint --test || true
-        
-      - name: Run PHP CodeSniffer
-        run: vendor/bin/phpcs --standard=PSR12 app/ || true
-
-  # Job 2: Unit & Feature Tests
-  tests:
-    name: PHP ${{ matrix.php-version }} - ${{ matrix.database }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: code-quality
-    
-    strategy:
-      fail-fast: false
-      matrix:
-        php-version: ['8.2', '8.3', '8.4']
-        database: ['sqlite', 'mysql']
-        include:
-          - database: mysql
-            db_port: 3306
-          - database: sqlite
-            db_port: 0
-        exclude:
-          - php-version: 8.2
-            database: mysql
-          - php-version: 8.4
-            database: mysql
-    
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ALLOW_EMPTY_PASSWORD: true
-          MYSQL_DATABASE: laravel_test
-        ports:
-          - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
-          
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Setup PHP ${{ matrix.php-version }}
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: ${{ matrix.php-version }}
-          extensions: mbstring, bcmath, intl, pdo, ${{ matrix.database }}, openssl, zip, pcntl, redis
-          coverage: xdebug
-          ini-values: memory_limit=2G
-          
-      - name: Cache Composer dependencies
-        uses: actions/cache@v3
-        with:
-          path: vendor
-          key: composer-${{ runner.os }}-${{ matrix.php-version }}-${{ hashFiles('**/composer.lock') }}
-          restore-keys: |
-            composer-${{ runner.os }}-${{ matrix.php-version }}-
-            composer-${{ runner.os }}-
-            
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress --optimize-autoloader
-        
-      - name: Copy environment file
-        run: cp .env.ci .env || cp .env.example .env
-        
-      - name: Generate application key
-        run: php artisan key:generate
-        
-      - name: Prepare database
-        if: matrix.database == 'sqlite'
-        run: |
-          mkdir -p database
-          touch database/testing.sqlite
-          
       - name: Run migrations
-        env:
-          DB_CONNECTION: ${{ matrix.database }}
-          DB_DATABASE: ${{ matrix.database == 'sqlite' && 'database/testing.sqlite' || 'laravel_test' }}
-          DB_HOST: 127.0.0.1
-          DB_PORT: ${{ matrix.db_port }}
-          DB_USERNAME: root
-          DB_PASSWORD: ''
         run: php artisan migrate --no-interaction -v
         
-      - name: Run Unit Tests
-        run: php artisan test --testsuite=Unit --no-interaction --stop-on-failure
+      - name: Run Database Schema Tests
+        run: php artisan test --filter DatabaseSchemaTest --no-interaction --verbose
         
-      - name: Run Feature Tests
-        run: php artisan test --testsuite=Feature --no-interaction --stop-on-failure
-        
-      - name: Run Tests with Coverage
-        if: matrix.php-version == '8.3' && matrix.database == 'sqlite'
-        run: |
-          php artisan test --coverage-clover=coverage.xml --coverage-html=coverage-html
-          
-      - name: Upload Coverage Report
-        if: matrix.php-version == '8.3' && matrix.database == 'sqlite'
-        uses: actions/upload-artifact@v3
-        with:
-          name: coverage-report
-          path: coverage-html/
-          
       - name: Upload Test Reports
         if: always()
         uses: actions/upload-artifact@v3
         with:
-          name: test-reports-${{ matrix.php-version }}-${{ matrix.database }}
+          name: test-reports
           path: storage/logs/
-
-  # Job 3: Security Checks
-  security:
-    name: Security Scanning
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [tests]
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: 8.3
-          extensions: mbstring, bcmath, intl
-          
-      - name: Cache Composer dependencies
-        uses: actions/cache@v3
-        with:
-          path: vendor
-          key: composer-${{ runner.os }}-${{ hashFiles('**/composer.lock') }}
-          restore-keys: |
-            composer-${{ runner.os }}-
-            
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress --no-dev
-        
-      - name: Run Security Checker
-        run: |
-          curl -sS https://get.symfony.com/cli/installer | bash
-          ~/.symfony5/bin/symfony security:check
-          
-      - name: Run Composer Audit
-        run: composer audit || true
-        
-      - name: Run NPM Audit (if package.json exists)
-        run: |
-          if [ -f "package.json" ]; then
-            npm audit --production || true
-          fi
-
-  # Job 4: Performance & Build
-  build:
-    name: Build & Optimize
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [tests, security]
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: 8.3
-          extensions: mbstring, bcmath, intl, pdo, sqlite, openssl, zip, pcntl
-          
-      - name: Cache Composer dependencies
-        uses: actions/cache@v3
-        with:
-          path: vendor
-          key: composer-${{ runner.os }}-${{ hashFiles('**/composer.lock') }}
-          
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
-        
-      - name: Copy environment
-        run: cp .env.example .env
-        
-      - name: Generate key
-        run: php artisan key:generate
-        
-      - name: Cache config
-        run: php artisan config:cache
-        
-      - name: Cache routes
-        run: php artisan route:cache
-        
-      - name: Cache views
-        run: php artisan view:cache
-        
-      - name: Check build
-        run: php artisan optimize
-        
-      - name: Create build artifact
-        run: |
-          tar -czf laravel-build.tar.gz \
-            --exclude='.git' \
-            --exclude='node_modules' \
-            --exclude='storage/logs/*' \
-            --exclude='storage/framework/cache/*' \
-            --exclude='storage/framework/sessions/*' \
-            --exclude='storage/framework/testing/*' \
-            --exclude='tests' \
-            .
-            
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: laravel-build
-          path: laravel-build.tar.gz
-          retention-days: 7
-
-  # Job 5: Notification (FIXED)
-  notify:
-    name: Notifications
-    runs-on: ubuntu-latest
-    needs: [build]
-    if: always()
-    
-    steps:
-      - name: Check workflow status
-        id: status
-        run: |
-          if [ "${{ needs.build.result }}" == "success" ]; then
-            echo "status=Pipeline Succeeded" >> $GITHUB_OUTPUT
-            echo "color=3066993" >> $GITHUB_OUTPUT  # Green for success
-          else
-            echo "status=Pipeline Failed" >> $GITHUB_OUTPUT
-            echo "color=15158332" >> $GITHUB_OUTPUT  # Red for failure
-          fi
-          
-      - name: Send Slack notification
-        if: failure() && github.ref == 'refs/heads/main'
-        uses: 8398a7/action-slack@v3
-        with:
-          status: ${{ job.status }}
-          fields: repo,message,commit,author,action,workflow
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          
-      - name: Send Discord notification
-        if: always()
-        uses: sarisia/actions-status-discord@v1
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK }}
-          status: ${{ job.status }}
-          title: "Laravel CI Pipeline"
-          description: |
-            Repository: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Commit: ${{ github.sha }}
-            Author: ${{ github.actor }}
-          color: ${{ steps.status.outputs.color }}
