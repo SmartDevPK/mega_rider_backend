@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
     
     steps:
@@ -27,10 +27,11 @@ jobs:
       - name: Generate key
         run: php artisan key:generate
         
-      - name: Create database        run: |
+      - name: Create database  # ← Fixed: run: on next line
+        run: |
           mkdir -p database
           touch database/testing.sqlite
-          
+e          
       - name: Run migrations
         env:
           DB_CONNECTION: sqlite
