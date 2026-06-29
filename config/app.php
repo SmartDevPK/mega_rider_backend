@@ -124,14 +124,14 @@ return [
         'driver' => env('APP_MAINTENANCE_DRIVER', 'file'),
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
-    
+
     'rate_limits' => [
-    'api' => env('API_RATE_LIMIT', 60),
-    'auth' => env('AUTH_RATE_LIMIT', 10),
-    'financial' => env('FINANCIAL_RATE_LIMIT', 5),
-    'admin' => env('ADMIN_RATE_LIMIT', 200),
-],
-  'motorcycle' => [
+        'api' => env('API_RATE_LIMIT', 60),
+        'auth' => env('AUTH_RATE_LIMIT', 10),
+        'financial' => env('FINANCIAL_RATE_LIMIT', 5),
+        'admin' => env('ADMIN_RATE_LIMIT', 200),
+    ],
+    'motorcycle' => [
         'base_fare' => 500,
         'rate_per_km' => 100,
         'rate_per_min' => 10,
@@ -142,6 +142,13 @@ return [
         'rate_per_min' => 15,
     ],
 
-    'super_admin_token' => env('SUPER_ADMIN_TOKEN', '')
+    'super_admin_token' => env('SUPER_ADMIN_TOKEN', ''),
+
+    'aliases' => [
+        // ...
+        'CacheService' => App\Services\Cache\DistributedCacheService::class,
+        'CircuitBreaker' => App\Services\CircuitBreaker\CircuitBreaker::class,
+        'RateLimiter' => App\Services\RateLimiter\SlidingWindowRateLimiter::class,
+    ],
 
 ];

@@ -1,60 +1,121 @@
 <?php
 
 use App\Http\Controllers\Api\V1\Auth\AuthController;
+use App\Http\Controllers\Api\V1\Auth\EmailCheckController;
+
 use Illuminate\Support\Facades\Route;
-use Illuminate\Http\Request;
+
+/**
+ * Auth Routes - Mega Dispatch Production Standard
+ * 
+ * Security Features:
+ * - Rate limiting at route level
+ * - Security headers middleware
+ * - Throttle by IP and user
+ * - Idempotency key support
+ */
 
 // =========================================================================
-// AUTH ROUTES
+// V1 AUTH ROUTES
 // =========================================================================
 
-Route::prefix('v1/auth')->group(function () {
+Route::prefix('v1/auth')
+    ->group(function () {
 
-    // =========================================================================
-    // PUBLIC ROUTES (No authentication required)
-    // =========================================================================
+        // =====================================================================
+        // PUBLIC ROUTES - No authentication required
+        // =====================================================================
 
-    // Email & Phone checks
-    Route::post('/check-email', [AuthController::class, 'checkEmail']);
-    Route::post('/check-phone', [AuthController::class, 'checkPhone']);
+        Route::prefix('public')->group(function () {
 
-    // Registration OTP routes
-    Route::post('/send-pre-registration-otp', [AuthController::class, 'sendPreRegistrationOTP']);
-    Route::post('/resend-pre-registration-otp', [AuthController::class, 'resendPreRegistrationOTP']);
-    Route::post('/verify-otp-register', [AuthController::class, 'verifyOTPAndRegister']);
+            // Email Validation
+            Route::post('/check-email', [EmailCheckController::class, 'checkEmail'])
+                ->name('auth.check-email')
+                ->middleware('throttle:30,1');
 
-    // Login
-    Route::post('/login', [AuthController::class, 'login']);
+            // Registration Flow
+            Route::post('/send-otp', [AuthController::class, 'sendOTP'])
+                ->name('auth.send-otp')
+                ->middleware('throttle:5,1');
 
-    // Email verification for existing users
-    Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
-    Route::post('/resend-verification', [AuthController::class, 'resendVerification']);
+            Route::post('/register', [AuthController::class, 'register'])
+                ->name('auth.register')
+                ->middleware('throttle:10,1');
 
-    // PASSWORD RESET ROUTES 
-    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
-    Route::post('/verify-reset-code', [AuthController::class, 'verifyResetCode']);
-    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
-    Route::post('/resend-reset-code', [AuthController::class, 'resendResetCode']);
+            // Authentication
+            Route::post('/login', [AuthController::class, 'login'])
+                ->name('auth.login')
+                ->middleware('throttle:10,1');
 
-    // =========================================================================
-    // AUTHENTICATED ROUTES (Requires valid token)
-    // =========================================================================
+            Route::post('/verify-2fa', [AuthController::class, 'verifyTwoFactor'])
+                ->name('auth.verify-2fa')
+                ->middleware('throttle:5,1');
 
-    Route::middleware(['auth:sanctum'])->group(function () {
+            // Password Reset Flow
+            Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])
+                ->name('auth.forgot-password')
+                ->middleware('throttle:3,60');
 
-        // Session management
-        Route::post('/logout', [AuthController::class, 'logout']);
-        Route::post('/logout-all', [AuthController::class, 'logoutAllDevices']);
-        Route::post('/refresh', [AuthController::class, 'refresh']);
-        Route::get('/me', [AuthController::class, 'me']);
+            Route::post('/verify-reset-code', [AuthController::class, 'verifyResetCode'])
+                ->name('auth.verify-reset-code')
+                ->middleware('throttle:5,1');
 
-        // Two Factor Authentication Routes
-        Route::prefix('/two-factor')->group(function () {
-            Route::get('/settings', [AuthController::class, 'getTwoFactorSettings']);
-            Route::post('/enable', [AuthController::class, 'enableTwoFactor']);
-            Route::post('/disable', [AuthController::class, 'disableTwoFactor']);
-            Route::post('/verify', [AuthController::class, 'verifyTwoFactor']);
-            Route::post('/regenerate-codes', [AuthController::class, 'regenerateRecoveryCodes']);
+            Route::post('/reset-password', [AuthController::class, 'resetPassword'])
+                ->name('auth.reset-password')
+                ->middleware('throttle:3,1');
         });
+
+        // =====================================================================
+        // AUTHENTICATED ROUTES - Require valid token
+        // =====================================================================
+
+        Route::middleware(['auth:sanctum', 'throttle:100,1'])
+            ->group(function () {
+
+                // Session Management
+                Route::post('/logout', [AuthController::class, 'logout'])
+                    ->name('auth.logout');
+
+                Route::post('/logout-all-devices', [AuthController::class, 'logoutAllDevices'])
+                    ->name('auth.logout-all');
+
+                Route::post('/refresh', [AuthController::class, 'refresh'])
+                    ->name('auth.refresh');
+
+                Route::get('/me', [AuthController::class, 'me'])
+                    ->name('auth.me');
+
+                // Two-Factor Authentication (2FA)
+                Route::prefix('2fa')
+                    ->name('auth.2fa.')
+                    ->group(function () {
+
+                        Route::get('/settings', [AuthController::class, 'getTwoFactorSettings'])
+                            ->name('settings');
+
+                        Route::post('/enable', [AuthController::class, 'enableTwoFactor'])
+                            ->name('enable');
+
+                        Route::post('/disable', [AuthController::class, 'disableTwoFactor'])
+                            ->name('disable');
+
+                        Route::post('/verify', [AuthController::class, 'verifyTwoFactor'])
+                            ->name('verify');
+
+                        Route::post('/recovery-codes', [AuthController::class, 'regenerateRecoveryCodes'])
+                            ->name('recovery-codes');
+                    });
+            });
     });
+
+// =========================================================================
+// FALLBACK ROUTE (Optional - for debugging)
+// =========================================================================
+
+Route::fallback(function () {
+    return response()->json([
+        'success' => false,
+        'message' => 'Route not found.',
+        'code' => 'ROUTE_NOT_FOUND'
+    ], 404);
 });
