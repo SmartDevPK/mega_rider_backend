@@ -1,0 +1,20 @@
+parameters:
+    level: 8
+    paths:
+        - app
+        - tests
+        
+    # Tell PHPStan where to find your models
+    scanDirectories:
+        - app/Models
+        - app/Enums
+        - app/DTO
+        
+    # Bootstrap files if needed
+    bootstrapFiles:
+        - vendor/laravel/framework/src/Illuminate/Foundation/helpers.php
+        
+    # Ignore specific errors (temporary)
+    ignoreErrors:
+        - '#Access to an undefined property App\\Models\\Rider::#'
+        - '#Access to an undefined property App\\Models\\CustomerDailyStreak::#'
