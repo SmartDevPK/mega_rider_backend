@@ -28,7 +28,7 @@ class Kernel extends HttpKernel
      */
     protected $middlewareGroups = [
         'web' => [
-            \App\Http\Middleware\EncryptCookies::class,
+            // \App\Http\Middleware\EncryptCookies::class,
             \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
             \Illuminate\Session\Middleware\StartSession::class,
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
@@ -63,12 +63,13 @@ class Kernel extends HttpKernel
         'password.expiry' => \App\Http\Middleware\CheckPasswordExpiry::class,
         // Custom account status middleware
         'account.active' => \App\Http\Middleware\CheckAccountNotDeleted::class,
-        
-        
+        'security.headers' => \App\Http\Middleware\SecurityHeadersMiddleware::class,
+
+
         // Custom Middleware
         'verified' => \App\Http\Middleware\VerifiedMiddleware::class,
         'active' => \App\Http\Middleware\ActiveMiddleware::class,
-         'rider.auth' => \App\Http\Middleware\RiderAuthenticated::class,
+        'rider.auth' => \App\Http\Middleware\RiderAuthenticated::class,
     ];
 
     /**
@@ -88,7 +89,7 @@ class Kernel extends HttpKernel
                     ], 429);
                 });
         });
-        
+
         // Auth rate limiter
         RateLimiter::for('auth', function (Request $request) {
             return Limit::perMinute(10)
@@ -101,7 +102,7 @@ class Kernel extends HttpKernel
                     ], 429);
                 });
         });
-        
+
         // Financial operations rate limiter
         RateLimiter::for('financial', function (Request $request) {
             return Limit::perMinute(5)
@@ -114,7 +115,7 @@ class Kernel extends HttpKernel
                     ], 429);
                 });
         });
-        
+
         // Admin rate limiter
         RateLimiter::for('admin', function (Request $request) {
             return Limit::perMinute(200)
@@ -127,7 +128,7 @@ class Kernel extends HttpKernel
                     ], 429);
                 });
         });
-        
+
         // Orders rate limiter
         RateLimiter::for('orders', function (Request $request) {
             return Limit::perMinute(20)
@@ -140,7 +141,7 @@ class Kernel extends HttpKernel
                     ], 429);
                 });
         });
-        
+
         // Emergency rate limiter
         RateLimiter::for('emergency', function (Request $request) {
             return Limit::perMinute(2)
@@ -153,7 +154,7 @@ class Kernel extends HttpKernel
                     ], 429);
                 });
         });
-        
+
         // Uploads rate limiter
         RateLimiter::for('uploads', function (Request $request) {
             return Limit::perMinute(10)
