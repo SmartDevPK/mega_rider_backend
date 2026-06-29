@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Builder;
@@ -93,16 +95,16 @@ class Customer extends Authenticatable implements JWTSubject
         'updated_at' => 'datetime',
         'deleted_at' => 'datetime',
 
-        // String casts
-        'registration_ip' => 'string',
-
         // Decimal casts
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
         'wallet_balance' => 'decimal:2',
         'total_spent' => 'decimal:2',
+
+        // Integer casts
         'points_balance' => 'integer',
         'total_rides' => 'integer',
+        'login_count' => 'integer',
 
         // Boolean casts
         'is_verified' => 'boolean',
@@ -112,7 +114,6 @@ class Customer extends Authenticatable implements JWTSubject
 
         // Other casts
         'password' => 'hashed',
-        'login_count' => 'integer',
         'notification_preferences' => 'array',
         'two_factor_recovery_codes' => 'array',
     ];
@@ -159,19 +160,19 @@ class Customer extends Authenticatable implements JWTSubject
         return strtoupper(substr($this->first_name, 0, 1) . substr($this->last_name, 0, 1));
     }
 
-    public function getFormattedWalletBalance(): string
+    public function getFormattedWalletBalanceAttribute(): string
     {
-        return '₦' . number_format($this->wallet_balance, 2);
+        return '₦' . number_format((float) $this->wallet_balance, 2);
     }
 
     public function setFirstNameAttribute($value): void
     {
-        $this->attributes['first_name'] = ucfirst(strtolower($value));
+        $this->attributes['first_name'] = $value !== null ? ucfirst(strtolower($value)) : null;
     }
 
     public function setLastNameAttribute($value): void
     {
-        $this->attributes['last_name'] = ucfirst(strtolower($value));
+        $this->attributes['last_name'] = $value !== null ? ucfirst(strtolower($value)) : null;
     }
 
     // =========================================================================
@@ -234,32 +235,64 @@ class Customer extends Authenticatable implements JWTSubject
     }
 
     // =========================================================================
-    // VERIFICATION METHODS
+    // EMAIL VERIFICATION METHODS
     // =========================================================================
 
+    /**
+     * Check if email is verified
+     */
+    public function isEmailVerified(): bool
+    {
+        return !is_null($this->email_verified_at) && $this->is_verified === true;
+    }
+
+    /**
+     * Check if email is verified (alias for consistency)
+     */
     public function hasVerifiedEmail(): bool
     {
-        return !is_null($this->email_verified_at) && $this->is_verified;
+        return $this->isEmailVerified();
     }
 
+    /**
+     * Mark email as verified
+     */
     public function markEmailAsVerified(): bool
     {
-        return $this->forceFill([
-            'email_verified_at' => $this->freshTimestamp(),
-            'is_verified' => true,
-        ])->save();
+        $this->email_verified_at = now();
+        $this->is_verified = true;
+        return $this->save();
     }
 
+    /**
+     * Check if phone is verified
+     */
     public function hasVerifiedPhone(): bool
     {
         return !is_null($this->phone_verified_at);
     }
 
+    /**
+     * Mark phone as verified
+     */
     public function markPhoneAsVerified(): bool
     {
-        return $this->forceFill([
-            'phone_verified_at' => $this->freshTimestamp(),
-        ])->save();
+        $this->phone_verified_at = now();
+        return $this->save();
+    }
+
+    /**
+     * Get verification status
+     */
+    public function getVerificationStatus(): array
+    {
+        return [
+            'is_verified' => $this->isEmailVerified(),
+            'verified_at' => $this->email_verified_at?->toIso8601String(),
+            'requires_verification' => !$this->isEmailVerified(),
+            'phone_verified' => $this->hasVerifiedPhone(),
+            'phone_verified_at' => $this->phone_verified_at?->toIso8601String(),
+        ];
     }
 
     // =========================================================================
@@ -300,7 +333,7 @@ class Customer extends Authenticatable implements JWTSubject
 
     public function deductFromWallet(float $amount): bool
     {
-        if ($this->wallet_balance < $amount) {
+        if ((float) $this->wallet_balance < $amount) {
             return false;
         }
 
